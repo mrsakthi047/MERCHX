@@ -1,36 +1,23 @@
 import streamlit as st
 import hashlib
-import json
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
+import re
 
-# Optional Gemini SDK
 try:
     from google import genai
-    GEMINI_SDK_AVAILABLE = True
-except Exception:
-    GEMINI_SDK_AVAILABLE = False
+except ImportError:
+    genai = None
 
-
-# =========================================================
-# MERCHX CONFIGURATION
-# =========================================================
 
 st.set_page_config(
-    page_title="MERCHX — Autonomous AI Commerce Protocol",
+    page_title="MERCHX",
     page_icon="🛡️",
-    layout="wide",
+    layout="wide"
 )
 
 MAX_TRANSACTION = 10000
 DAILY_LIMIT = 20000
-QUOTE_MINUTES = 10
-
-
-# =========================================================
-# DEMO PRODUCT CATALOG
-# =========================================================
 
 PRODUCTS = [
     {
@@ -38,142 +25,110 @@ PRODUCTS = [
         "name": "MERCHX Wireless Headphones",
         "category": "Electronics",
         "price": 7999,
-        "stock": 35,
-        "rating": 4.6,
-        "features": ["ANC", "Bluetooth 5.3", "40h battery"],
+        "stock": 35
     },
     {
         "id": "P002",
         "name": "MERCHX Smart Watch",
         "category": "Electronics",
         "price": 6499,
-        "stock": 18,
-        "rating": 4.4,
-        "features": ["AMOLED", "GPS", "Health tracking"],
+        "stock": 18
     },
     {
         "id": "P003",
         "name": "MERCHX Mechanical Keyboard",
         "category": "Electronics",
         "price": 4999,
-        "stock": 22,
-        "rating": 4.7,
-        "features": ["Hot-swap", "RGB", "Wireless"],
+        "stock": 22
     },
     {
         "id": "P004",
         "name": "MERCHX AI Backpack",
         "category": "Accessories",
         "price": 3499,
-        "stock": 12,
-        "rating": 4.3,
-        "features": ["USB charging", "Laptop sleeve", "Water resistant"],
+        "stock": 12
     },
     {
         "id": "P005",
         "name": "MERCHX Pro Laptop",
         "category": "Computers",
         "price": 64999,
-        "stock": 7,
-        "rating": 4.8,
-        "features": ["16GB RAM", "512GB SSD", "14-inch display"],
-    },
+        "stock": 7
+    }
 ]
 
 
-# =========================================================
-# SESSION STATE
-# =========================================================
-
-if "audit_logs" not in st.session_state:
-    st.session_state.audit_logs = []
+if "audit" not in st.session_state:
+    st.session_state.audit = []
 
 if "orders" not in st.session_state:
     st.session_state.orders = []
 
-if "spent_today" not in st.session_state:
-    st.session_state.spent_today = 0
-
-if "last_quote" not in st.session_state:
-    st.session_state.last_quote = None
+if "spent" not in st.session_state:
+    st.session_state.spent = 0
 
 
-# =========================================================
-# HELPER FUNCTIONS
-# =========================================================
-
-def money(value):
-    return f"₹{value:,.0f}"
+def money(amount):
+    return f"₹{amount:,.0f}"
 
 
-def audit(action, status, reason, **extra):
-    st.session_state.audit_logs.insert(
+def log_event(action, status, reason):
+    st.session_state.audit.insert(
         0,
         {
-            "timestamp": datetime.now(timezone.utc).strftime(
+            "time": datetime.now(timezone.utc).strftime(
                 "%Y-%m-%d %H:%M:%S UTC"
             ),
             "action": action,
             "status": status,
-            "reason": reason,
-            **extra,
-        },
+            "reason": reason
+        }
     )
 
 
-def find_products(query):
+def search_products(query):
     query = query.lower()
-
-    tokens = [
-        token
-        for token in re.findall(r"[a-z0-9]+", query)
-        if len(token) > 2
-    ]
-
-    scored = []
+    matches = []
 
     for product in PRODUCTS:
-
-        searchable_text = " ".join(
-            [
-                product["name"],
-                product["category"],
-                *product["features"],
-            ]
+        text = (
+            product["name"]
+            + " "
+            + product["category"]
         ).lower()
 
-        score = sum(
-            1 for token in tokens if token in searchable_text
-        )
+        score = 0
 
-        if score:
-            scored.append((score, product))
+        for word in query.split():
+            if len(word) > 2 and word in text:
+                score += 1
 
-    scored.sort(
+        if score > 0:
+            matches.append((score, product))
+
+    matches.sort(
         key=lambda item: (
             -item[0],
-            item[1]["price"],
+            item[1]["price"]
         )
     )
 
-    return [product for _, product in scored] or PRODUCTS
+    if matches:
+        return [item[1] for item in matches]
+
+    return PRODUCTS
 
 
 def extract_budget(text):
-
     patterns = [
-        r"(?:₹|rs\.?|inr|\$)\s*([0-9][0-9,]*)",
-        r"([0-9][0-9,]*)\s*(?:rupees|rs)\b",
-        r"under\s+([0-9][0-9,]*)",
-        r"below\s+([0-9][0-9,]*)",
-        r"within\s+([0-9][0-9,]*)",
+        r"(?:₹|rs|inr|\$)\s*([0-9,]+)",
+        r"(?:under|below|within)\s*(?:₹|rs|inr|\$)?\s*([0-9,]+)"
     ]
 
     for pattern in patterns:
-
         match = re.search(
             pattern,
-            text.lower(),
+            text.lower()
         )
 
         if match:
@@ -185,42 +140,36 @@ def extract_budget(text):
 
 
 def extract_quantity(text):
-
     match = re.search(
-        r"\b(?:qty|quantity|buy|need|want)\s*(?:of\s*)?(\d+)\b",
-        text.lower(),
+        r"(?:buy|need|want)\s+(\d+)",
+        text.lower()
     )
 
     if match:
         return max(
             1,
-            min(int(match.group(1)), 20),
+            int(match.group(1))
         )
 
     match = re.search(
-        r"\b(\d+)\s*(?:units?|items?|pieces?)\b",
-        text.lower(),
+        r"(\d+)\s+(?:units|items|pieces)",
+        text.lower()
     )
 
     if match:
         return max(
             1,
-            min(int(match.group(1)), 20),
+            int(match.group(1))
         )
 
     return 1
 
 
-# =========================================================
-# QUOTE CREATION
-# =========================================================
-
 def create_quote(product, quantity):
-
     now = datetime.now(timezone.utc)
 
     expires = now + timedelta(
-        minutes=QUOTE_MINUTES
+        minutes=10
     )
 
     quote_id = (
@@ -228,383 +177,94 @@ def create_quote(product, quantity):
         + uuid.uuid4().hex[:8].upper()
     )
 
-    payload = {
+    raw_data = (
+        f"{quote_id}|"
+        f"{product['id']}|"
+        f"{quantity}|"
+        f"{product['price']}|"
+        f"{expires.isoformat()}"
+    )
+
+    signature = hashlib.sha256(
+        raw_data.encode()
+    ).hexdigest()
+
+    return {
         "quote_id": quote_id,
         "product_id": product["id"],
         "quantity": quantity,
         "unit_price": product["price"],
         "total": product["price"] * quantity,
         "expires_at": expires.isoformat(),
+        "signature": signature
     }
-
-    signature = hashlib.sha256(
-        json.dumps(
-            payload,
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
-
-    payload["signature"] = signature
-
-    return payload
-
-
-# =========================================================
-# QUOTE VERIFICATION
-# =========================================================
-
-def secure_compare(a, b):
-
-    if len(a) != len(b):
-        return False
-
-    result = 0
-
-    for x, y in zip(
-        a.encode(),
-        b.encode(),
-    ):
-        result |= x ^ y
-
-    return result == 0
 
 
 def verify_quote(quote):
+    if quote is None:
+        return False
 
-    if not quote:
-        return False, "No quote exists."
+    expiry = datetime.fromisoformat(
+        quote["expires_at"]
+    )
 
-    try:
+    if datetime.now(timezone.utc) >= expiry:
+        return False
 
-        expires = datetime.fromisoformat(
-            quote["expires_at"]
-        )
+    raw_data = (
+        f"{quote['quote_id']}|"
+        f"{quote['product_id']}|"
+        f"{quote['quantity']}|"
+        f"{quote['unit_price']}|"
+        f"{quote['expires_at']}"
+    )
 
-        if datetime.now(timezone.utc) >= expires:
-            return False, "Quote expired."
-
-    except Exception:
-
-        return False, "Invalid quote expiry."
-
-    unsigned_quote = {
-        key: quote[key]
-        for key in quote
-        if key != "signature"
-    }
-
-    expected_signature = hashlib.sha256(
-        json.dumps(
-            unsigned_quote,
-            sort_keys=True,
-        ).encode("utf-8")
+    expected = hashlib.sha256(
+        raw_data.encode()
     ).hexdigest()
 
-    if not secure_compare(
-        expected_signature,
-        quote.get("signature", ""),
-    ):
-        return False, "Quote signature verification failed."
-
-    return True, "Quote valid."
+    return expected == quote["signature"]
 
 
-# =========================================================
-# POLICY ENGINE
-# =========================================================
-
-def policy_check(
-    product,
-    quantity,
-    total,
-):
-
-    reasons = []
-
-    if total > MAX_TRANSACTION:
-
-        reasons.append(
-            f"Transaction limit exceeded "
-            f"({money(total)} > {money(MAX_TRANSACTION)})."
-        )
-
-    if (
-        st.session_state.spent_today + total
-        > DAILY_LIMIT
-    ):
-
-        reasons.append(
-            "Daily spending limit would be exceeded."
-        )
-
-    if product["category"] not in {
-        "Electronics",
-        "Accessories",
-    }:
-
-        reasons.append(
-            "Category is not allowed by the demo policy."
-        )
-
-    if quantity > 3:
-
-        reasons.append(
-            "Maximum quantity per transaction is 3."
-        )
-
-    if quantity > product["stock"]:
-
-        reasons.append(
-            "Insufficient inventory."
-        )
-
-    return (
-        len(reasons) == 0,
-        reasons,
-    )
-
-
-# =========================================================
-# RISK ENGINE
-# =========================================================
-
-def risk_check(
-    product,
-    quantity,
-    total,
-):
-
-    risk = "LOW"
-    reasons = []
-
-    if total >= 9000:
-
-        risk = "MEDIUM"
-
-        reasons.append(
-            "High-value transaction."
-        )
-
-    if quantity >= 3:
-
-        risk = "MEDIUM"
-
-        reasons.append(
-            "Bulk quantity."
-        )
-
-    if product["category"] == "Computers":
-
-        risk = "HIGH"
-
-        reasons.append(
-            "High-value computer category."
-        )
-
-    return risk, reasons
-
-
-# =========================================================
-# GEMINI AI AGENT
-# =========================================================
-
-def ask_gemini(user_query):
-
+def ask_ai(query):
     api_key = st.secrets.get(
         "GEMINI_API_KEY",
-        "",
+        ""
     )
 
-    if not api_key or not GEMINI_SDK_AVAILABLE:
+    if not api_key:
+        return None
+
+    if genai is None:
         return None
 
     try:
-
         client = genai.Client(
             api_key=api_key
         )
 
-        prompt = f"""
-You are MERCHX, an AI-native commerce agent.
-
-Parse this procurement request:
-
-{user_query!r}
-
-Return ONLY valid JSON.
-
-Required keys:
-
-product_keywords
-budget
-quantity
-
-Rules:
-
-product_keywords = product requested by user
-budget = numeric budget or null
-quantity = integer
-
-Do not invent products.
-This is a demo catalog.
-"""
+        prompt = (
+            "You are MERCHX, an AI commerce agent. "
+            "Understand this shopping request and "
+            "return only the main product keyword: "
+            + query
+        )
 
         response = client.models.generate_content(
             model="gemini-2.5-flash",
-            contents=prompt,
+            contents=prompt
         )
 
-        text = response.text.strip()
-
-        text = re.sub(
-            r"^```json\s*|\s*```$",
-            "",
-            text,
-            flags=re.I,
-        )
-
-        return json.loads(text)
+        return response.text.strip()
 
     except Exception as error:
-
-        audit(
-            "AI_PARSE",
+        log_event(
+            "AI",
             "FALLBACK",
-            f"Gemini unavailable: {str(error)[:160]}",
+            str(error)
         )
-
         return None
 
-
-def parse_request(user_query):
-
-    ai_data = ask_gemini(
-        user_query
-    )
-
-    if ai_data:
-
-        keywords = str(
-            ai_data.get(
-                "product_keywords",
-                user_query,
-            )
-        )
-
-        budget = ai_data.get(
-            "budget"
-        )
-
-        quantity = int(
-            ai_data.get(
-                "quantity",
-                1,
-            )
-            or 1
-        )
-
-        return (
-            keywords,
-            budget,
-            max(
-                1,
-                min(quantity, 20),
-            ),
-            "Gemini AI",
-        )
-
-    return (
-        user_query,
-        extract_budget(user_query),
-        extract_quantity(user_query),
-        "Deterministic fallback",
-    )
-
-
-# =========================================================
-# PAYMENT / IDEMPOTENCY
-# =========================================================
-
-def execute_purchase(
-    product,
-    quote,
-):
-
-    request_id = (
-        "REQ-"
-        + uuid.uuid4().hex[:10].upper()
-    )
-
-    idempotency_key = (
-        f"{quote['quote_id']}:"
-        f"{product['id']}:"
-        f"{quote['quantity']}"
-    )
-
-    existing_order = next(
-        (
-            order
-            for order in st.session_state.orders
-            if order["idempotency_key"]
-            == idempotency_key
-        ),
-        None,
-    )
-
-    if existing_order:
-
-        audit(
-            "PAYMENT",
-            "DUPLICATE_BLOCKED",
-            "Idempotency key already processed.",
-            request_id=request_id,
-        )
-
-        return existing_order, "duplicate"
-
-    order_id = (
-        "MX-ORD-"
-        + uuid.uuid4().hex[:8].upper()
-    )
-
-    order = {
-        "order_id": order_id,
-        "request_id": request_id,
-        "idempotency_key": idempotency_key,
-        "product": product["name"],
-        "quantity": quote["quantity"],
-        "amount": quote["total"],
-        "payment": "RAZORPAY TEST MODE — SIMULATED",
-        "status": "PAID",
-        "timestamp": datetime.now(
-            timezone.utc
-        ).strftime(
-            "%Y-%m-%d %H:%M:%S UTC"
-        ),
-    }
-
-    st.session_state.orders.append(
-        order
-    )
-
-    st.session_state.spent_today += (
-        quote["total"]
-    )
-
-    audit(
-        "CREATE_ORDER",
-        "APPROVED",
-        "Policy and risk checks passed.",
-        order_id=order_id,
-        amount=quote["total"],
-    )
-
-    return order, "created"
-
-
-# =========================================================
-# MERCHX UI
-# =========================================================
 
 st.title("🛡️ MERCHX")
 
@@ -618,81 +278,46 @@ st.caption(
 )
 
 
-# =========================================================
-# SIDEBAR
-# =========================================================
-
 with st.sidebar:
 
     st.header(
-        "🛡️ MERCHX Control Center"
+        "MERCHX Control Center"
     )
 
     st.metric(
         "Transaction Limit",
-        money(MAX_TRANSACTION),
+        money(MAX_TRANSACTION)
     )
 
     st.metric(
         "Daily Limit",
-        money(DAILY_LIMIT),
+        money(DAILY_LIMIT)
     )
 
     st.metric(
         "Spent Today",
-        money(
-            st.session_state.spent_today
-        ),
-    )
-
-    st.divider()
-
-    st.write(
-        "**Agent Identity**"
-    )
-
-    st.code(
-        "AGENT-001"
+        money(st.session_state.spent)
     )
 
     st.write(
-        "Role: Procurement Agent"
+        "Agent ID: AGENT-001"
     )
-
-    st.write(
-        "Allowed: Electronics, Accessories"
-    )
-
-    st.write(
-        "Max quantity: 3"
-    )
-
-    st.divider()
 
     st.info(
-        "Demo mode uses a simulated "
-        "Razorpay Test Mode payment boundary. "
+        "Demo payment is simulated. "
         "No real money is charged."
     )
 
 
-# =========================================================
-# TABS
-# =========================================================
-
 tab1, tab2, tab3, tab4 = st.tabs(
     [
         "🤖 AI Buyer",
-        "🧾 Quotes & Orders",
-        "📋 Audit Trail",
-        "🧪 Test Lab",
+        "🧾 Orders",
+        "📋 Audit",
+        "🧪 Test Lab"
     ]
 )
 
-
-# =========================================================
-# AI BUYER
-# =========================================================
 
 with tab1:
 
@@ -701,18 +326,16 @@ with tab1:
     )
 
     query = st.text_input(
-        "Product requirement",
+        "Product Query",
         placeholder=(
-            "Example: I need wireless "
-            "headphones under ₹8,000"
-        ),
-        label_visibility="collapsed",
+            "Example: wireless headphones "
+            "under ₹8000"
+        )
     )
 
     if st.button(
         "🚀 Run MERCHX Agent",
-        type="primary",
-        use_container_width=True,
+        type="primary"
     ):
 
         if not query.strip():
@@ -724,224 +347,329 @@ with tab1:
         else:
 
             with st.spinner(
-                "AI → Search → Inventory → "
-                "Quote → Policy → Risk → Authorization..."
+                "MERCHX is evaluating the request..."
             ):
 
-                keywords, budget, quantity, parser = (
-                    parse_request(query)
+                ai_result = ask_ai(query)
+
+                search_text = (
+                    ai_result
+                    if ai_result
+                    else query
                 )
 
-                candidates = find_products(
-                    keywords
+                budget = extract_budget(
+                    query
                 )
 
-                product = candidates[0]
+                quantity = extract_quantity(
+                    query
+                )
 
-                # Budget-aware selection
+                candidates = search_products(
+                    search_text
+                )
 
                 if budget is not None:
 
                     affordable = [
-                        p
-                        for p in candidates
-                        if p["price"] * quantity
+                        product
+                        for product in candidates
+                        if product["price"] * quantity
                         <= budget
                     ]
 
                     if affordable:
+                        product = affordable[0]
+                    else:
+                        product = candidates[0]
 
-                        product = sorted(
-                            affordable,
-                            key=lambda p: (
-                                p["price"],
-                                -p["rating"],
-                            ),
-                        )[0]
+                else:
+
+                    product = candidates[0]
 
                 total = (
                     product["price"]
                     * quantity
                 )
 
-                # Quote
-
                 quote = create_quote(
                     product,
-                    quantity,
+                    quantity
                 )
 
-                st.session_state.last_quote = (
+                quote_valid = verify_quote(
                     quote
                 )
 
-                # Verification
+                reasons = []
 
-                quote_ok, quote_reason = (
-                    verify_quote(quote)
-                )
+                if total > MAX_TRANSACTION:
 
-                # Policy
-
-                policy_ok, policy_reasons = (
-                    policy_check(
-                        product,
-                        quantity,
-                        total,
+                    reasons.append(
+                        "Transaction limit exceeded."
                     )
-                )
 
-                # Risk
+                if (
+                    st.session_state.spent
+                    + total
+                    > DAILY_LIMIT
+                ):
 
-                risk, risk_reasons = (
-                    risk_check(
-                        product,
-                        quantity,
-                        total,
+                    reasons.append(
+                        "Daily spending limit exceeded."
                     )
-                )
 
-                # Budget protection
+                if quantity > 3:
+
+                    reasons.append(
+                        "Maximum quantity is 3."
+                    )
+
+                if quantity > product["stock"]:
+
+                    reasons.append(
+                        "Insufficient inventory."
+                    )
 
                 if (
                     budget is not None
                     and total > budget
                 ):
 
-                    policy_ok = False
-
-                    policy_reasons.append(
-                        f"Selected product exceeds "
-                        f"requested budget "
-                        f"({money(total)} > "
-                        f"{money(budget)})."
+                    reasons.append(
+                        "Product exceeds requested budget."
                     )
 
-                # Authorization
+                if product["category"] not in [
+                    "Electronics",
+                    "Accessories"
+                ]:
 
-                authorization = (
-                    "APPROVED"
-                    if (
-                        quote_ok
-                        and policy_ok
-                        and risk != "HIGH"
+                    reasons.append(
+                        "Category is not allowed."
                     )
-                    else "BLOCKED"
+
+                risk = "LOW"
+
+                if total >= 9000:
+                    risk = "MEDIUM"
+
+                if product["category"] == "Computers":
+
+                    risk = "HIGH"
+
+                    reasons.append(
+                        "High-risk computer category."
+                    )
+
+                approved = (
+                    quote_valid
+                    and len(reasons) == 0
+                    and risk != "HIGH"
                 )
 
-                audit(
+                log_event(
                     "AGENT_DECISION",
-                    authorization,
-                    (
-                        "; ".join(
-                            policy_reasons
-                            + risk_reasons
-                        )
-                        if authorization
-                        == "BLOCKED"
-                        else "All controls passed."
-                    ),
-                    product=product["name"],
-                    amount=total,
-                    parser=parser,
+                    "APPROVED"
+                    if approved
+                    else "BLOCKED",
+                    "All controls passed."
+                    if approved
+                    else "; ".join(reasons)
                 )
-
-                # Report
 
                 st.markdown(
                     "### 📋 Protocol Execution Report"
                 )
 
-                c1, c2, c3, c4 = st.columns(4)
+                col1, col2, col3, col4 = st.columns(4)
 
-                c1.metric(
-                    "Selected",
-                    product["name"],
+                col1.metric(
+                    "Product",
+                    product["name"]
                 )
 
-                c2.metric(
+                col2.metric(
                     "Total",
-                    money(total),
+                    money(total)
                 )
 
-                c3.metric(
+                col3.metric(
                     "Risk",
-                    risk,
+                    risk
                 )
 
-                c4.metric(
+                col4.metric(
                     "Decision",
-                    authorization,
+                    "APPROVED"
+                    if approved
+                    else "BLOCKED"
                 )
 
                 st.write(
-                    "**Product**"
+                    "📦 Inventory:",
+                    "PASS ✅"
+                    if quantity <= product["stock"]
+                    else "FAIL ❌"
                 )
 
                 st.write(
-                    f"{product['name']} • "
-                    f"{product['category']} • "
-                    f"⭐ {product['rating']}"
+                    "🧾 Quote:",
+                    "VALID ✅"
+                    if quote_valid
+                    else "INVALID ❌"
                 )
 
                 st.write(
-                    "Features: "
-                    + ", ".join(
-                        product["features"]
+                    "🛡️ Policy:",
+                    "PASS ✅"
+                    if not reasons
+                    else "BLOCK ❌"
+                )
+
+                st.write(
+                    "🚨 Risk:",
+                    risk
+                )
+
+                if approved:
+
+                    st.success(
+                        "AUTHORIZED — Payment boundary reached."
                     )
-                )
 
-                st.write(
-                    "**Control Checks**"
-                )
-
-                st.write(
-                    "📦 Inventory: "
-                    + (
-                        "PASS ✅"
-                        if quantity
-                        <= product["stock"]
-                        else "FAIL ❌"
+                    st.info(
+                        "💳 Razorpay TEST MODE — SIMULATED"
                     )
-                    + f" — {product['stock']} units available"
-                )
 
-                st.write(
-                    "🧾 Quote: "
-                    + (
-                        "VALID ✅"
-                        if quote_ok
-                        else "INVALID ❌"
-                    )
-                    + f" — `{quote['quote_id']}`"
-                )
+                    if st.button(
+                        "Confirm Test Payment"
+                    ):
 
-                st.write(
-                    "🛡️ Policy: "
-                    + (
-                        "PASS ✅"
-                        if policy_ok
-                        else "BLOCK ❌"
-                    )
-                )
+                        order_id = (
+                            "MX-ORD-"
+                            + uuid.uuid4().hex[:8].upper()
+                        )
 
-                st.write(
-                    "🚨 Risk: "
-                    + risk
-                    + (
-                        " ✅"
-                        if risk != "HIGH"
-                        else " ❌"
-                    )
-                )
-
-                st.write(
-                    "👤 Agent Permission: "
-                    + (
-                        "PASS ✅"
-                        if product["category"]
-                        in {
-                            "Electronics",
-                            "Accessories",
+                        order = {
+                            "order_id": order_id,
+                            "product": product["name"],
+                            "amount": total,
+                            "status": "PAID",
+                            "payment": (
+                                "RAZORPAY TEST MODE — "
+                                "SIMULATED"
+                            )
                         }
- 
+
+                        st.session_state.orders.append(
+                            order
+                        )
+
+                        st.session_state.spent += total
+
+                        log_event(
+                            "CREATE_ORDER",
+                            "APPROVED",
+                            "All MERCHX controls passed."
+                        )
+
+                        st.success(
+                            "Payment successful in TEST MODE."
+                        )
+
+                        st.json(order)
+
+                else:
+
+                    st.error(
+                        "BLOCKED — Payment request was not sent."
+                    )
+
+                    for reason in reasons:
+
+                        st.write(
+                            "• " + reason
+                        )
+
+                st.markdown(
+                    "### 🔐 Cryptographic Quote"
+                )
+
+                st.json(quote)
+
+
+with tab2:
+
+    st.subheader(
+        "Orders"
+    )
+
+    if st.session_state.orders:
+
+        st.dataframe(
+            st.session_state.orders,
+            use_container_width=True
+        )
+
+    else:
+
+        st.info(
+            "No orders yet."
+        )
+
+
+with tab3:
+
+    st.subheader(
+        "Audit Trail"
+    )
+
+    if st.session_state.audit:
+
+        st.dataframe(
+            st.session_state.audit,
+            use_container_width=True
+        )
+
+    else:
+
+        st.info(
+            "No audit events yet."
+        )
+
+
+with tab4:
+
+    st.subheader(
+        "🧪 MERCHX Test Lab"
+    )
+
+    st.write(
+        "Test 1: Headphones under ₹8,000 → APPROVE"
+    )
+
+    st.write(
+        "Test 2: Laptop under ₹10,000 → BLOCK"
+    )
+
+    st.write(
+        "Test 3: Buy 5 headphones → BLOCK"
+    )
+
+    st.write(
+        "Test 4: Buy 40 headphones → BLOCK"
+    )
+
+    st.success(
+        "Run these scenarios from the AI Buyer tab."
+    )
+
+
+st.divider()
+
+st.caption(
+    "MERCHX Prototype • Secure AI-native commerce • "
+    "Test-safe payment boundary"
+)
