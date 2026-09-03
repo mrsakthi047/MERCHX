@@ -9,6 +9,7 @@ try:
 except ImportError:
     genai = None
 
+from commerce_engine import search_products, check_inventory, get_product
 
 st.set_page_config(
     page_title="MERCHX",
