@@ -1,19 +1,6 @@
 # ============================================================
 # MERCHX SHOPPING INTELLIGENCE AGENT
 # ============================================================
-#
-# Responsibilities:
-# - Understand shopping goals
-# - Research live web
-# - Find real products
-# - Compare prices
-# - Analyse reviews
-# - Identify pros / cons
-# - Rank products
-# - Return source URLs
-#
-# This is an AGENT, not a static product database.
-# ============================================================
 
 import os
 import re
@@ -22,28 +9,25 @@ from google import genai
 from google.genai import types
 
 
-# ============================================================
-# GEMINI CLIENT
-# ============================================================
+MODEL_NAME = "gemini-3.8-flash"
+
 
 def get_client():
-
+    """
+    Create Gemini client using GEMINI_API_KEY.
+    """
     api_key = os.getenv("GEMINI_API_KEY")
 
     if not api_key:
         return None
 
-    return genai.Client(
-        api_key=api_key
-    )
+    return genai.Client(api_key=api_key)
 
-
-# ============================================================
-# URL EXTRACTION
-# ============================================================
 
 def extract_urls(text):
-
+    """
+    Extract URLs from grounded Gemini response.
+    """
     if not text:
         return []
 
@@ -55,10 +39,7 @@ def extract_urls(text):
     cleaned = []
 
     for url in urls:
-
-        url = url.rstrip(
-            ".,;:)"
-        )
+        url = url.rstrip(".,;:)")
 
         if url not in cleaned:
             cleaned.append(url)
@@ -66,69 +47,82 @@ def extract_urls(text):
     return cleaned
 
 
-# ============================================================
-# SHOPPING AGENT
-# ============================================================
-
 def shopping_agent(user_request):
+    """
+    Main MERCHX Shopping Intelligence Agent.
+
+    Responsibilities:
+    - Understand shopping intent
+    - Research live web
+    - Discover real products
+    - Compare prices
+    - Analyse reviews
+    - Identify pros and cons
+    - Analyse trust
+    - Rank products
+    - Recommend best option
+    - Return source URLs
+    """
 
     client = get_client()
 
     if client is None:
-
         return {
             "success": False,
-            "error": (
-                "GEMINI_API_KEY is not configured."
-            ),
-            "products": [],
-            "sources": []
+            "error": "GEMINI_API_KEY is not configured.",
+            "text": "",
+            "sources": [],
+            "products": []
         }
 
     prompt = f"""
 You are MERCHX Shopping Intelligence Agent.
 
-Your goal is to help the user make the best purchasing
-decision using live web research.
+MERCHX is an AI-native commerce intelligence and authorization
+layer.
 
 USER REQUEST:
 {user_request}
 
 ============================================================
-RESEARCH OBJECTIVE
+YOUR MISSION
 ============================================================
 
-Understand the user's intent first.
+Understand what the user actually wants to buy.
 
-Extract:
+Do NOT behave like a static product database.
 
-- Product
-- Category
+Use live Google Search grounding to research the current web.
+
+Find REAL products from REAL websites.
+
+============================================================
+RESEARCH TASKS
+============================================================
+
+1. UNDERSTAND USER INTENT
+
+Identify:
+
+- Product category
+- Desired features
 - Budget
 - Quantity
-- Important features
-- Use case
 - Brand preference
-- Other constraints
+- Use case
+- Important constraints
 
-If the user says things like:
+If the user gives a budget, respect it.
 
-"best"
-"cheapest"
-"under ₹50000"
-"for gaming"
-"good camera"
-"best value"
+If no budget is given, do not invent one.
 
-interpret those requirements intelligently.
+------------------------------------------------------------
 
-============================================================
-LIVE PRODUCT RESEARCH
-============================================================
+2. LIVE PRODUCT DISCOVERY
 
 Search the live web.
 
-Prefer real product pages from:
+Prefer:
 
 - Amazon India
 - Flipkart
@@ -136,248 +130,272 @@ Prefer real product pages from:
 - Meesho
 - Croma
 - Reliance Digital
+- Vijay Sales
 - Official brand stores
-- Other trustworthy retailers
+- Other legitimate retailers
 
-IMPORTANT:
+Find REAL products.
 
-NEVER invent:
+Do NOT invent:
 
-- product names
-- prices
-- ratings
-- review counts
-- product URLs
-- retailer names
-
-Only return information that can be verified from
-web research.
-
-============================================================
-PRICE INTELLIGENCE
-============================================================
-
-For the SAME or equivalent product:
-
-find multiple retailers where possible.
-
-Compare:
-
-Retailer
-Price
-Availability
-Product URL
-
-Identify:
-
-BEST PRICE
-BEST VALUE
-PREMIUM OPTION
-
-Do not assume the lowest price is automatically
-the best product.
-
-============================================================
-REVIEW INTELLIGENCE
-============================================================
-
-Research available reviews.
-
-Look for recurring:
-
-Positive points
-Negative points
-Reliability issues
-Battery issues
-Build quality
-Performance
-Value for money
-Common complaints
-
-Create a short AI summary.
-
-Do NOT pretend to have analysed reviews that were
-not available.
-
-============================================================
-PRODUCT QUALITY
-============================================================
-
-For every product calculate an approximate:
-
-MERCHX SCORE / 100
-
-Use these factors:
-
-- Value
-- Reviews
-- Brand trust
-- Specifications
-- Price
+- Product names
+- Prices
+- Ratings
+- Review counts
 - Availability
-- User sentiment
+- URLs
 
-Explain the score briefly.
+------------------------------------------------------------
 
-============================================================
-TOP 1% STYLE FILTER
-============================================================
+3. PRICE INTELLIGENCE
 
-Reject obviously poor choices when evidence supports it.
+Compare available prices.
 
-Prefer:
+For each product identify when possible:
 
-high-value
-well-reviewed
-trusted
-reliable
-good specification
-reasonable price
+- Product
+- Seller
+- Current price
+- Original/MRP if available
+- Discount
+- Availability
+- Product URL
 
-Do NOT claim literal "top 1%" market coverage unless
-the research actually supports such a claim.
+If a price cannot be verified,
+write:
 
-Call this:
+"Price not verified"
 
-MERCHX TOP PICKS
+Never guess.
+
+------------------------------------------------------------
+
+4. REVIEW INTELLIGENCE
+
+Research publicly available reviews when possible.
+
+Look for:
+
+- Positive patterns
+- Negative patterns
+- Common complaints
+- Reliability concerns
+- Long-term ownership feedback
+- User experience
+
+Summarize instead of copying large review text.
+
+------------------------------------------------------------
+
+5. PROS AND CONS
+
+For every recommended product provide:
+
+PROS:
+- ...
+- ...
+- ...
+
+CONS:
+- ...
+- ...
+- ...
+
+Only include meaningful points supported by research.
+
+------------------------------------------------------------
+
+6. TRUST ANALYSIS
+
+Evaluate:
+
+- Seller reputation
+- Official vs marketplace listing
+- Review consistency
+- Warranty information
+- Return policy when available
+- Suspicious pricing
+- Source quality
+
+Give:
+
+Trust Score: X/100
+
+Explain why.
+
+Do NOT claim a seller is fraudulent unless strong evidence supports it.
+
+------------------------------------------------------------
+
+7. PRODUCT RANKING
+
+Rank the strongest options.
+
+Use:
+
+#1 BEST OVERALL
+#2 BEST VALUE
+#3 BEST ALTERNATIVE
+
+Explain the trade-off.
+
+Do not automatically choose the cheapest product.
+
+------------------------------------------------------------
+
+8. BUYING INTELLIGENCE
+
+Tell the user:
+
+- Which product you recommend
+- Why
+- Who should buy it
+- Who should avoid it
+- Best value option
+- Important warning if applicable
+
+------------------------------------------------------------
+
+9. REAL LINKS
+
+Only provide URLs actually discovered through web research.
+
+NEVER fabricate URLs.
+
+NEVER create fake product pages.
+
+If an exact product page cannot be verified,
+provide the verified search/source page instead and clearly label it.
+
+------------------------------------------------------------
+
+10. MERCHX DECISION LAYER
+
+Remember:
+
+MERCHX is NOT simply a shopping chatbot.
+
+The architecture is:
+
+USER
+↓
+AI SHOPPING AGENT
+↓
+LIVE WEB RESEARCH
+↓
+PRODUCT INTELLIGENCE
+↓
+MERCHX POLICY ENGINE
+↓
+RISK ENGINE
+↓
+HUMAN APPROVAL
+↓
+PAYMENT
+
+The Shopping Agent does NOT automatically purchase anything.
+
+Never claim that an order or payment happened.
 
 ============================================================
 OUTPUT FORMAT
 ============================================================
 
-Return clean Markdown.
+# 🛍️ MERCHX SHOPPING INTELLIGENCE
 
-# 🛍️ MERCHX SHOPPING RESULTS
+## 🎯 UNDERSTOOD REQUEST
 
-## 🎯 Understanding Your Request
+Explain what the user is looking for.
 
-Product:
-Budget:
-Use Case:
-Important Requirements:
+## 🔎 LIVE RESEARCH
 
----
+Explain briefly what was researched.
 
-## 🏆 MERCHX TOP PICKS
+## 🏆 TOP PICKS
 
-For each recommended product:
+For every important product use:
 
-### PRODUCT NAME
+### #1 PRODUCT NAME
 
-**Brand:** ...
-**Retailer:** ...
-**Price:** ...
-**Rating:** ...
-**Reviews:** ...
+**Price:** ₹...
+**Seller:** ...
 **Availability:** ...
+**Trust Score:** .../100
 
-**MERCHX SCORE:** XX/100
-
-### ✅ Pros
-
-- ...
-- ...
-- ...
-
-### ❌ Cons
-
-- ...
-- ...
-- ...
-
-### ⭐ Review Intelligence
-
+**Why it is recommended:**
 ...
 
-### 🔗 Product Page
+**Pros**
+- ...
+- ...
+- ...
 
+**Cons**
+- ...
+- ...
+- ...
+
+**Product URL:**
 REAL URL ONLY
 
 ---
 
 ## 💰 PRICE COMPARISON
 
-Create a table:
+Compare the strongest options in a clean table.
 
-| Retailer | Price | Availability | Product Link |
-|---|---:|---|---|
+| Product | Seller | Price | Trust |
+|---|---|---:|---:|
 
-Use REAL URLs only.
+## ⭐ REVIEW INTELLIGENCE
 
----
+Summarize common review patterns.
 
-## 🥇 BEST PRICE
+## 🛡️ TRUST & RISK
 
-Product:
-Retailer:
-Price:
-URL:
+Explain seller/source reliability and important warnings.
 
----
+## 🧠 MERCHX RECOMMENDATION
 
-## 🧠 BEST VALUE
+Clearly identify:
 
-Product:
-Reason:
+BEST OVERALL:
+...
 
----
+BEST VALUE:
+...
 
-## ⭐ REVIEW VERDICT
+BEST ALTERNATIVE:
+...
 
-Short summary.
+Explain the reasoning.
 
----
+## ⚠️ IMPORTANT
 
-## 🛡️ MERCHX TRUST CHECK
-
-Mention:
-
-- Product legitimacy
-- Retailer trust
-- Review consistency
-- Price anomaly
-- Important warnings
-
----
-
-## 🤖 MERCHX DECISION
-
-Give one recommendation:
-
-BUY
-CONSIDER
-WAIT
-AVOID
-
-Explain why.
+Mention anything the user should verify before purchasing.
 
 ============================================================
-FINAL RULE
+
+STRICT RULES
 ============================================================
 
-MERCHX is an intelligence layer.
-
-It does NOT automatically purchase anything.
-
-Before payment:
-
-USER
-↓
-MERCHX POLICY
-↓
-RISK ENGINE
-↓
-HUMAN APPROVAL if required
-↓
-PAYMENT
-
-Never claim a purchase occurred.
+- Use live web research.
+- Prefer current information.
+- Never fabricate products.
+- Never fabricate prices.
+- Never fabricate ratings.
+- Never fabricate review counts.
+- Never fabricate URLs.
+- Never claim payment occurred.
+- Never claim an order occurred.
+- Clearly distinguish verified information from uncertain information.
+- Optimize for the user's actual goal, not just cheapest price.
 """
 
     try:
 
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model=MODEL_NAME,
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[
@@ -388,12 +406,15 @@ Never claim a purchase occurred.
             )
         )
 
-        text = response.text
+        text = response.text or ""
+
+        sources = extract_urls(text)
 
         return {
             "success": True,
+            "error": "",
             "text": text,
-            "sources": extract_urls(text),
+            "sources": sources,
             "products": []
         }
 
@@ -402,14 +423,11 @@ Never claim a purchase occurred.
         return {
             "success": False,
             "error": str(error),
-            "products": [],
-            "sources": []
+            "text": "",
+            "sources": [],
+            "products": []
         }
 
-
-# ============================================================
-# AGENT STATUS
-# ============================================================
 
 def shopping_agent_status():
 
@@ -418,15 +436,17 @@ def shopping_agent_status():
     return {
         "agent": "MERCHX Shopping Intelligence Agent",
         "status": "ONLINE" if client else "OFFLINE",
+
         "capabilities": [
             "Intent Understanding",
             "Live Web Research",
-            "Product Discovery",
-            "Price Comparison",
+            "Real Product Discovery",
+            "Price Intelligence",
             "Review Intelligence",
             "Pros & Cons",
-            "Trust Analysis",
+            "Seller Trust Analysis",
             "Product Ranking",
-            "Recommendation"
+            "Recommendation",
+            "Source Verification"
         ]
     }
