@@ -1,4 +1,5 @@
 import streamlit as st
+from urllib.parse import quote_plus
 
 from agent_engine import detect_intent, get_agent_response
 from agent_context import AgentMemory, plan_next_step
@@ -8,11 +9,11 @@ from risk_engine import calculate_risk, format_risk_report
 from explainability_engine import explain_decision, format_explanation
 from audit_engine import AuditEngine
 from simulation_engine import simulate_transaction, format_simulation_report
-from policy_optimizer import PolicyOptimizer, format_optimization_report
+from policy_optimizer import PolicyOptimizer
 
 
 # ============================================================
-# CONFIG
+# MERCHX CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -23,6 +24,60 @@ st.set_page_config(
 
 st.title("🛡️ MERCHX")
 st.caption("AI-Native Commerce Protocol")
+
+
+# ============================================================
+# MARKETPLACE LINK ENGINE
+# ============================================================
+
+def marketplace_links(product_name):
+    """
+    Generate clickable marketplace search links.
+
+    These links search for the exact MERCHX product name
+    on each marketplace instead of inventing a fake product URL.
+    """
+
+    query = quote_plus(product_name)
+
+    return {
+        "Amazon": f"https://www.amazon.in/s?k={query}",
+        "Flipkart": f"https://www.flipkart.com/search?q={query}",
+        "Meesho": f"https://www.meesho.com/search?q={query}",
+        "Myntra": f"https://www.myntra.com/search?q={query}",
+    }
+
+
+def render_marketplace_links(product_name):
+    """
+    Render clickable marketplace buttons/links.
+    """
+
+    links = marketplace_links(product_name)
+
+    st.markdown("### 🛍️ Shop on Marketplace")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.markdown(
+            f"[🟠 **Amazon**]({links['Amazon']})"
+        )
+
+    with col2:
+        st.markdown(
+            f"[🔵 **Flipkart**]({links['Flipkart']})"
+        )
+
+    with col3:
+        st.markdown(
+            f"[🩷 **Meesho**]({links['Meesho']})"
+        )
+
+    with col4:
+        st.markdown(
+            f"[🟣 **Myntra**]({links['Myntra']})"
+        )
 
 
 # ============================================================
@@ -54,7 +109,7 @@ policy_optimizer = st.session_state.policy_optimizer
 
 
 # ============================================================
-# SEARCH
+# PRODUCT SEARCH
 # ============================================================
 
 def search_catalog(query, budget=None):
@@ -96,26 +151,77 @@ def search_catalog(query, budget=None):
 def show_products(products):
 
     if not products:
-        return "❌ No matching products found."
+        st.error("❌ No matching products found.")
+        return
 
-    text = "🛒 **MERCHX PRODUCT DISCOVERY**\n\n"
+    st.markdown("## 🛒 MERCHX PRODUCT DISCOVERY")
 
     for index, product in enumerate(products, 1):
 
-        features = ", ".join(
-            product.get("features", [])
+        st.markdown("---")
+
+        st.markdown(
+            f"### {index}. {product['name']}"
         )
 
-        text += (
-            f"**{index}. {product['name']}**\n"
-            f"💰 ₹{product['price']:,}\n"
-            f"📦 Stock: {product['stock']}\n"
-            f"🏷️ Category: {product['category']}\n"
-            f"⚙️ {features}\n"
-            f"🆔 `{product['id']}`\n\n"
-        )
+        col1, col2 = st.columns([2, 1])
 
-    return text
+        with col1:
+
+            st.markdown(
+                f"💰 **Price:** ₹{product['price']:,}"
+            )
+
+            st.markdown(
+                f"📦 **Stock:** {product['stock']}"
+            )
+
+            st.markdown(
+                f"🏷️ **Category:** {product['category']}"
+            )
+
+            st.markdown(
+                f"⚙️ **Features:** "
+                f"{', '.join(product.get('features', []))}"
+            )
+
+            st.markdown(
+                f"🆔 **Product ID:** `{product['id']}`"
+            )
+
+        with col2:
+
+            st.markdown("#### 🛍️ Marketplace")
+
+            links = marketplace_links(
+                product["name"]
+            )
+
+            st.link_button(
+                "🟠 Amazon",
+                links["Amazon"],
+                use_container_width=True
+            )
+
+            st.link_button(
+                "🔵 Flipkart",
+                links["Flipkart"],
+                use_container_width=True
+            )
+
+            st.link_button(
+                "🩷 Meesho",
+                links["Meesho"],
+                use_container_width=True
+            )
+
+            st.link_button(
+                "🟣 Myntra",
+                links["Myntra"],
+                use_container_width=True
+            )
+
+    st.markdown("---")
 
 
 # ============================================================
@@ -125,10 +231,11 @@ def show_products(products):
 def purchase_pipeline(product, quantity=1, budget=None):
 
     total = product["price"] * quantity
+
     spent_today = st.session_state.spent_today
 
     # --------------------------------------------------------
-    # INVENTORY
+    # INVENTORY CHECK
     # --------------------------------------------------------
 
     inventory = check_inventory(
@@ -158,7 +265,7 @@ def purchase_pipeline(product, quantity=1, budget=None):
         )
 
     # --------------------------------------------------------
-    # POLICY
+    # POLICY ENGINE
     # --------------------------------------------------------
 
     policy = evaluate_policy(
@@ -181,7 +288,7 @@ def purchase_pipeline(product, quantity=1, budget=None):
     )
 
     # --------------------------------------------------------
-    # RISK
+    # RISK ENGINE
     # --------------------------------------------------------
 
     risk = calculate_risk(
@@ -197,7 +304,7 @@ def purchase_pipeline(product, quantity=1, budget=None):
     )
 
     # --------------------------------------------------------
-    # SIMULATION
+    # SIMULATION ENGINE
     # --------------------------------------------------------
 
     simulation = simulate_transaction(
@@ -234,7 +341,7 @@ def purchase_pipeline(product, quantity=1, budget=None):
         decision = "APPROVED"
 
     # --------------------------------------------------------
-    # EXPLANATION
+    # EXPLAINABILITY
     # --------------------------------------------------------
 
     explanation = explain_decision(
@@ -247,7 +354,7 @@ def purchase_pipeline(product, quantity=1, budget=None):
     )
 
     # --------------------------------------------------------
-    # BLOCK
+    # BLOCKED
     # --------------------------------------------------------
 
     if decision == "BLOCKED":
@@ -336,7 +443,7 @@ def purchase_pipeline(product, quantity=1, budget=None):
 
 
 # ============================================================
-# AGENT HANDLER
+# AI AGENT HANDLER
 # ============================================================
 
 def handle_message(user_input):
@@ -410,7 +517,7 @@ def handle_message(user_input):
                 payload.get("quantity")
             )
 
-            return show_products(results)
+            return results
 
         if "product" in payload:
 
@@ -418,15 +525,7 @@ def handle_message(user_input):
 
             memory.remember_selection(product)
 
-            return (
-                "🎯 **MERCHX SELECTED PRODUCT**\n\n"
-                f"**{product['name']}**\n\n"
-                f"💰 Price: ₹{product['price']:,}\n"
-                f"📦 Stock: {product['stock']}\n"
-                f"🏷️ Category: {product['category']}\n"
-                f"⚙️ {', '.join(product['features'])}\n\n"
-                "👉 Say **buy** to continue."
-            )
+            return product
 
     # --------------------------------------------------------
     # SEARCH THEN BUY
@@ -448,12 +547,7 @@ def handle_message(user_input):
             payload.get("quantity")
         )
 
-        return (
-            show_products(results)
-            + "\n\n"
-            "👉 Say **best**, **cheapest**, "
-            "or the exact product name."
-        )
+        return results
 
     # --------------------------------------------------------
     # COMPARE
@@ -489,7 +583,12 @@ def handle_message(user_input):
     if action == "QUOTE":
 
         product = payload["product"]
-        quantity = payload.get("quantity", 1)
+
+        quantity = payload.get(
+            "quantity",
+            1
+        )
+
         total = product["price"] * quantity
 
         quote = {
@@ -519,7 +618,11 @@ def handle_message(user_input):
     if action == "INVENTORY":
 
         product = payload["product"]
-        quantity = payload.get("quantity", 1)
+
+        quantity = payload.get(
+            "quantity",
+            1
+        )
 
         inventory = check_inventory(
             product["id"],
@@ -531,12 +634,14 @@ def handle_message(user_input):
             return (
                 "📦 **IN STOCK**\n\n"
                 f"{product['name']}\n"
-                f"Available: {inventory['available_stock']} units"
+                f"Available: "
+                f"{inventory['available_stock']} units"
             )
 
         return (
             "❌ **INSUFFICIENT STOCK**\n\n"
-            f"Available: {inventory['available_stock']} units"
+            f"Available: "
+            f"{inventory['available_stock']} units"
         )
 
     # --------------------------------------------------------
@@ -546,7 +651,12 @@ def handle_message(user_input):
     if action == "RUN_PURCHASE_PIPELINE":
 
         product = payload["product"]
-        quantity = payload.get("quantity", 1)
+
+        quantity = payload.get(
+            "quantity",
+            1
+        )
+
         budget = memory.budget_hint
 
         return purchase_pipeline(
@@ -598,9 +708,13 @@ with st.sidebar:
     ):
 
         if audit_engine.verify_integrity():
-            st.success("Audit chain integrity verified.")
+            st.success(
+                "Audit chain integrity verified."
+            )
         else:
-            st.error("Audit chain integrity check failed.")
+            st.error(
+                "Audit chain integrity check failed."
+            )
 
     if st.button(
         "🧹 Clear Chat",
@@ -622,7 +736,9 @@ pending = st.session_state.pending_purchase
 
 if pending:
 
-    st.warning("🟡 HUMAN-IN-THE-LOOP APPROVAL")
+    st.warning(
+        "🟡 HUMAN-IN-THE-LOOP APPROVAL"
+    )
 
     product = pending["product"]
     risk = pending["risk"]
@@ -640,7 +756,8 @@ if pending:
     )
 
     st.write(
-        f"**Risk:** {risk['level']} — {risk['score']}/100"
+        f"**Risk:** "
+        f"{risk['level']} — {risk['score']}/100"
     )
 
     with st.expander("🔎 View Details"):
@@ -682,105 +799,5 @@ if pending:
             )
 
             st.session_state.spent_today += pending["total"]
-            st.session_state.pending_purchase = None
 
-            st.success(
-                "Transaction approved by human authority."
-            )
-
-            st.info(
-                "💳 Simulated payment successful"
-            )
-
-            st.info(
-                "📦 Order created"
-            )
-
-            st.info(
-                f"📋 Audit ID: `{event['audit_id']}`"
-            )
-
-            st.rerun()
-
-    with reject_col:
-
-        if st.button(
-            "❌ REJECT TRANSACTION",
-            use_container_width=True
-        ):
-
-            event = audit_engine.record_event(
-                action="HUMAN_REJECTION",
-                agent_id="AGENT-001",
-                product_id=product["id"],
-                amount=pending["total"],
-                decision="REJECTED_BY_HUMAN",
-                risk_level=risk["level"],
-                policy_status="REVIEW",
-                payment_status="NOT_EXECUTED"
-            )
-
-            st.session_state.pending_purchase = None
-
-            st.error(
-                "Transaction rejected."
-            )
-
-            st.info(
-                f"📋 Audit ID: `{event['audit_id']}`"
-            )
-
-            st.rerun()
-
-
-# ============================================================
-# CHAT HISTORY
-# ============================================================
-
-for entry in st.session_state.chat_log:
-
-    with st.chat_message(
-        entry["role"]
-    ):
-
-        st.markdown(
-            entry["text"]
-        )
-
-
-# ============================================================
-# CHAT INPUT
-# ============================================================
-
-user_input = st.chat_input(
-    "Try: headphones • best • cheapest • compare • quote • buy"
-)
-
-if user_input:
-
-    st.session_state.chat_log.append(
-        {
-            "role": "user",
-            "text": user_input
-        }
-    )
-
-    with st.chat_message("user"):
-
-        st.markdown(user_input)
-
-    response = handle_message(user_input)
-
-    with st.chat_message("assistant"):
-
-        st.markdown(response)
-
-    st.session_state.chat_log.append(
-        {
-            "role": "assistant",
-            "text": response
-        }
-    )
-
-
-# =================================
+            st.session_state.pending_purchase = Non
