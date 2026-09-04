@@ -27,11 +27,14 @@ from simulation_engine import (
     format_simulation_report,
 )
 
-from policy_optimizer import PolicyOptimizer, format_optimization_report
+from policy_optimizer import (
+    PolicyOptimizer,
+    format_optimization_report,
+)
 
 
 # ============================================================
-# MERCHX CONFIGURATION
+# MERCHX CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -48,34 +51,35 @@ st.caption("AI-Native Commerce Protocol")
 # SESSION STATE
 # ============================================================
 
-memory = st.session_state.setdefault(
-    "memory",
-    AgentMemory(),
-)
+if "memory" not in st.session_state:
+    st.session_state.memory = AgentMemory()
 
-audit_engine = st.session_state.setdefault(
-    "audit_engine",
-    AuditEngine(),
-)
+if "audit_engine" not in st.session_state:
+    st.session_state.audit_engine = AuditEngine()
 
-policy_optimizer = st.session_state.setdefault(
-    "policy_optimizer",
-    PolicyOptimizer(),
-)
+if "policy_optimizer" not in st.session_state:
+    st.session_state.policy_optimizer = PolicyOptimizer()
 
-st.session_state.setdefault("chat_log", [])
-st.session_state.setdefault("spent_today", 0)
-st.session_state.setdefault("pending_purchase", None)
+if "chat_log" not in st.session_state:
+    st.session_state.chat_log = []
+
+if "spent_today" not in st.session_state:
+    st.session_state.spent_today = 0
+
+if "pending_purchase" not in st.session_state:
+    st.session_state.pending_purchase = None
+
+
+memory = st.session_state.memory
+audit_engine = st.session_state.audit_engine
+policy_optimizer = st.session_state.policy_optimizer
 
 
 # ============================================================
-# PRODUCT SEARCH
+# SEARCH
 # ============================================================
 
 def search_catalog(query, budget=None):
-    """
-    Search MERCHX catalog.
-    """
 
     query = query.lower().strip()
 
@@ -87,8 +91,7 @@ def search_catalog(query, budget=None):
     if results:
         return results
 
-    # Fallback word-based search
-    combined_results = []
+    fallback_results = []
 
     for word in query.split():
 
@@ -101,10 +104,11 @@ def search_catalog(query, budget=None):
         )
 
         for product in matches:
-            if product not in combined_results:
-                combined_results.append(product)
 
-    return combined_results
+            if product not in fallback_results:
+                fallback_results.append(product)
+
+    return fallback_results
 
 
 # ============================================================
@@ -132,8 +136,8 @@ def format_products(results):
             f"💰 **₹{product['price']:,}**\n"
             f"📦 Stock: **{product['stock']}**\n"
             f"🏷️ Category: **{product['category']}**\n"
-            f"⚙️ Features: {features}\n"
-            f"🆔 Product ID: `{product['id']}`\n"
+            f"⚙️ {features}\n"
+            f"🆔 `{product['id']}`\n"
         )
 
     return "\n".join(lines)
@@ -155,7 +159,7 @@ def run_purchase_pipeline(
 
 
     # --------------------------------------------------------
-    # 1. INVENTORY CHECK
+    # INVENTORY
     # --------------------------------------------------------
 
     inventory = check_inventory(
@@ -179,14 +183,14 @@ def run_purchase_pipeline(
         return (
             "🚫 **PURCHASE BLOCKED**\n\n"
             f"Product: {product['name']}\n"
-            f"Requested Quantity: {quantity}\n"
-            f"Available Stock: {inventory['available_stock']}\n\n"
+            f"Requested: {quantity}\n"
+            f"Available: {inventory['available_stock']}\n\n"
             f"📋 Audit ID: `{audit_event['audit_id']}`"
         )
 
 
     # --------------------------------------------------------
-    # 2. POLICY ENGINE
+    # POLICY
     # --------------------------------------------------------
 
     policy_result = evaluate_policy(
@@ -198,10 +202,7 @@ def run_purchase_pipeline(
 
 
     # --------------------------------------------------------
-    # 3. HARD POLICY FAILURES
-    #
-    # Transaction limit can go to HITL.
-    # Other policy violations remain hard blocks.
+    # HARD POLICY FAILURES
     # --------------------------------------------------------
 
     hard_failures = []
@@ -219,7 +220,7 @@ def run_purchase_pipeline(
 
 
     # --------------------------------------------------------
-    # 4. RISK ENGINE
+    # RISK
     # --------------------------------------------------------
 
     risk_result = calculate_risk(
@@ -236,7 +237,7 @@ def run_purchase_pipeline(
 
 
     # --------------------------------------------------------
-    # 5. SIMULATION ENGINE
+    # SIMULATION
     # --------------------------------------------------------
 
     simulation_result = simulate_transaction(
@@ -250,7 +251,7 @@ def run_purchase_pipeline(
 
 
     # --------------------------------------------------------
-    # 6. FINAL DECISION
+    # DECISION
     # --------------------------------------------------------
 
     if hard_failures:
@@ -275,7 +276,7 @@ def run_purchase_pipeline(
 
 
     # --------------------------------------------------------
-    # 7. EXPLAINABLE DECISION
+    # EXPLAINABILITY
     # --------------------------------------------------------
 
     explanation = explain_decision(
@@ -301,11 +302,7 @@ def run_purchase_pipeline(
             amount=total,
             decision="BLOCKED",
             risk_level=risk_result["level"],
-            policy_status=(
-                "BLOCKED"
-                if hard_failures
-                else "RISK_BLOCKED"
-            ),
+            policy_status="BLOCKED",
             payment_status="NOT_EXECUTED",
             metadata={
                 "policy_reasons": policy_result["reasons"],
@@ -384,7 +381,7 @@ def run_purchase_pipeline(
 
 
 # ============================================================
-# AI AGENT HANDLER
+# AGENT HANDLER
 # ============================================================
 
 def handle_user_message(user_input):
@@ -423,7 +420,7 @@ def handle_user_message(user_input):
     if action == "ASK_PRODUCT":
 
         return (
-            "🛒 **Sure! Which product are you looking for?**\n\n"
+            "🛒 **Which product are you looking for?**\n\n"
             "Examples:\n"
             "• headphones\n"
             "• laptop\n"
@@ -446,7 +443,7 @@ def handle_user_message(user_input):
 
     if action == "SEARCH":
 
-        # FIX: Handles normal keyword search
+        # Normal search
         if "keyword" in payload:
 
             keyword = payload["keyword"]
@@ -467,8 +464,8 @@ def handle_user_message(user_input):
             return format_products(results)
 
 
-        # FIX: Handles "best" / "cheapest"
-        elif "product" in payload:
+        # "best" / "cheapest"
+        if "product" in payload:
 
             product = payload["product"]
 
@@ -526,14 +523,12 @@ def handle_user_message(user_input):
 
             return "🔎 Search for a product first."
 
-
         if len(results) < 2:
 
             return (
                 "⚠️ Need at least two products "
                 "to compare."
             )
-
 
         lines = [
             "⚖️ **MERCHX SMART COMPARISON**",
@@ -689,9 +684,7 @@ with st.sidebar:
         use_container_width=True,
     ):
 
-        valid = audit_engine.verify_integrity()
-
-        if valid:
+        if audit_engine.verify_integrity():
 
             st.success(
                 "Audit chain integrity verified."
@@ -715,7 +708,7 @@ with st.sidebar:
 
 
 # ============================================================
-# HUMAN-IN-THE-LOOP PANEL
+# HUMAN APPROVAL PANEL
 # ============================================================
 
 pending = st.session_state.pending_purchase
@@ -728,11 +721,8 @@ if pending:
     )
 
     product = pending["product"]
-
     risk = pending["risk"]
-
     simulation = pending["simulation"]
-
 
     st.write(
         f"**Product:** {product['name']}"
@@ -751,9 +741,8 @@ if pending:
         f"{risk['level']} — {risk['score']}/100"
     )
 
-
     with st.expander(
-        "🔎 View Risk & Simulation Details"
+        "🔎 View Risk & Simulation"
     ):
 
         st.markdown(
@@ -766,12 +755,11 @@ if pending:
             )
         )
 
-
     col1, col2 = st.columns(2)
 
 
     # --------------------------------------------------------
-    # HUMAN APPROVE
+    # APPROVE
     # --------------------------------------------------------
 
     with col1:
@@ -805,15 +793,14 @@ if pending:
             st.info(
                 "💳 Simulated payment successful\n\n"
                 "📦 Order created\n\n"
-                f"📋 Audit ID: "
-                f"`{audit_event['audit_id']}`"
+                f"📋 Audit ID: `{audit_event['audit_id']}`"
             )
 
             st.rerun()
 
 
     # --------------------------------------------------------
-    # HUMAN REJECT
+    # REJECT
     # --------------------------------------------------------
 
     with col2:
@@ -829,4 +816,12 @@ if pending:
                 product_id=product["id"],
                 amount=pending["total"],
                 decision="REJECTED_BY_HUMAN",
-                risk_level
+                risk_level=risk["level"],
+                policy_status="REVIEW",
+                payment_status="NOT_EXECUTED",
+            )
+
+            st.session_state.pending_purchase = None
+
+            st.error(
+                "Transaction reject
