@@ -217,6 +217,49 @@ def plan_next_step(intent, user_input, memory: AgentMemory):
     budget = extract_budget(user_input) or memory.budget_hint
     quantity = extract_quantity(user_input) or memory.quantity_hint
 
+    # ------------------------------------------------------------
+    # RESUME A PENDING ACTION FIRST
+    # If the agent previously asked "which product?" (pending_action
+    # == AWAITING_PRODUCT), this turn's reply should complete THAT
+    # request -- not get reinterpreted as a brand-new SEARCH/BUY.
+    # Without this check, answering the clarifying question loses
+    # the original intent (e.g. "buy" -> "which product?" -> "headphones"
+    # would silently fall back to a plain search instead of buying).
+    # ------------------------------------------------------------
+    if memory.pending_action == "AWAITING_PRODUCT":
+        target = resolve_target_product(user_input, memory)
+
+        if target is None:
+            # still no product recognized -- keep asking
+            return {"action": "ASK_PRODUCT", "payload": {"intent": "BUY"}}
+
+        if isinstance(target, dict) and target.get("needs_search"):
+            memory.pending_action = "AWAITING_PRODUCT"
+            return {
+                "action": "SEARCH_THEN_BUY",
+                "payload": {"keyword": target["keyword"], "budget": budget, "quantity": quantity},
+            }
+
+        # concrete product resolved -> go straight into the purchase pipeline
+        memory.pending_action = None
+        return {
+            "action": "RUN_PURCHASE_PIPELINE",
+            "payload": {"product": target, "quantity": quantity},
+        }
+
+    if memory.pending_action == "AWAITING_BUY_CONFIRM":
+        target = resolve_target_product(user_input, memory)
+
+        if target and not (isinstance(target, dict) and target.get("needs_search")):
+            memory.pending_action = None
+            return {
+                "action": "RUN_PURCHASE_PIPELINE",
+                "payload": {"product": target, "quantity": quantity},
+            }
+        # user typed something else entirely -- drop the pending state
+        # and fall through to normal intent handling below
+        memory.pending_action = None
+
     if intent in ("SEARCH", "COMPARE", "QUOTE", "INVENTORY"):
         target = resolve_target_product(user_input, memory)
         if target is None:
