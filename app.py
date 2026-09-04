@@ -1,54 +1,18 @@
-# ============================================================
-# MERCHX — AI-NATIVE SHOPPING INTELLIGENCE & COMMERCE PROTOCOL
-# ============================================================
 
 import os
 import re
-import json
 import streamlit as st
 
-from google import genai
-from google.genai import types
-
-from agent_engine import (
-    detect_intent,
-    requires_confirmation,
-    get_agent_response,
-)
-
+from agent_engine import detect_intent, get_agent_response
 from agent_context import AgentMemory, plan_next_step
-
-from commerce_engine import (
-    search_products,
-    check_inventory,
-    get_product,
-)
-
+from commerce_engine import PRODUCTS, search_products, check_inventory, get_product
 from policy_engine import evaluate_policy
-
-from risk_engine import (
-    calculate_risk,
-    format_risk_report,
-)
-
-from explainability_engine import (
-    explain_decision,
-    format_explanation,
-)
-
+from risk_engine import calculate_risk, format_risk_report
+from explainability_engine import explain_decision, format_explanation
 from audit_engine import AuditEngine
-
-from simulation_engine import (
-    simulate_transaction,
-    format_simulation_report,
-)
-
+from simulation_engine import simulate_transaction, format_simulation_report
 from policy_optimizer import PolicyOptimizer
-
-from shopping_agent import (
-    shopping_agent,
-    shopping_agent_status,
-)
+from shopping_agent import shopping_agent
 
 
 # ============================================================
@@ -63,98 +27,58 @@ st.set_page_config(
 
 
 # ============================================================
-# PREMIUM UI
+# CUSTOM CSS
 # ============================================================
 
 st.markdown(
     """
-<style>
+    <style>
+    .main-title {
+        font-size: 3rem;
+        font-weight: 800;
+        margin-bottom: 0.2rem;
+    }
 
-.main-title {
-    font-size: 3rem;
-    font-weight: 800;
-    letter-spacing: -2px;
-    margin-bottom: 0.2rem;
-}
+    .subtitle {
+        color: #8b949e;
+        font-size: 1.05rem;
+        margin-bottom: 1.5rem;
+    }
 
-.subtitle {
-    color: #8b949e;
-    font-size: 1.05rem;
-    margin-bottom: 1.5rem;
-}
+    .agent-card {
+        padding: 1rem;
+        border: 1px solid rgba(128,128,128,.25);
+        border-radius: 14px;
+        margin-bottom: 1rem;
+    }
 
-.agent-card {
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 18px;
-    padding: 22px;
-    background: rgba(255,255,255,0.025);
-    margin-bottom: 15px;
-}
-
-.score {
-    font-size: 2rem;
-    font-weight: 800;
-}
-
-.status-online {
-    font-weight: 700;
-}
-
-.product-card {
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 16px;
-    padding: 18px;
-    margin: 10px 0;
-    background: rgba(255,255,255,0.025);
-}
-
-.small-muted {
-    color: #8b949e;
-    font-size: 0.85rem;
-}
-
-</style>
-""",
+    .small-muted {
+        color: #8b949e;
+        font-size: 0.9rem;
+    }
+    </style>
+    """,
     unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# HEADER
+# API KEY
 # ============================================================
 
-st.markdown(
-    '<div class="main-title">🛡️ MERCHX</div>',
-    unsafe_allow_html=True,
-)
+def get_api_key():
+    key = os.getenv("GEMINI_API_KEY")
 
-st.markdown(
-    '<div class="subtitle">'
-    'AI-Native Shopping Intelligence & Commerce Protocol'
-    '</div>',
-    unsafe_allow_html=True,
-)
+    if key:
+        return key
 
-
-# ============================================================
-# GEMINI CONFIGURATION
-# ============================================================
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-
-if not GEMINI_API_KEY:
     try:
-        GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+        return st.secrets.get("GEMINI_API_KEY")
     except Exception:
-        GEMINI_API_KEY = ""
+        return None
 
-client = None
 
-if GEMINI_API_KEY:
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-    except Exception:
-        client = None
+GEMINI_API_KEY = get_api_key()
 
 
 # ============================================================
@@ -184,18 +108,16 @@ if "web_results" not in st.session_state:
 
 
 # ============================================================
-# HELPERS
+# URL EXTRACTION
 # ============================================================
 
 def extract_urls(text):
-    """Extract URLs from research output."""
-
     if not text:
         return []
 
     urls = re.findall(
         r"https?://[^\s)\]}>\"']+",
-        text,
+        text
     )
 
     cleaned = []
@@ -209,153 +131,140 @@ def extract_urls(text):
     return cleaned
 
 
-def safe_json(data):
-    """Pretty JSON for UI."""
-
-    try:
-        return json.dumps(
-            data,
-            indent=2,
-            ensure_ascii=False,
-        )
-    except Exception:
-        return str(data)
-
-
 # ============================================================
 # LOCAL CATALOG SEARCH
 # ============================================================
 
-def local_catalog_search(query):
-    """Search MERCHX internal catalog."""
-
-    try:
-        return search_products(query)
-    except Exception:
-        return []
+def search_local_catalog(query, max_price=None):
+    return search_products(
+        query=query,
+        max_price=max_price
+    )
 
 
 # ============================================================
-# LIVE SHOPPING AGENT
+# PRODUCT DISPLAY
 # ============================================================
 
-def run_live_shopping_agent(user_request):
+def render_product(product):
 
-    if not GEMINI_API_KEY:
-        return {
-            "success": False,
-            "error": "GEMINI_API_KEY is not configured.",
-            "text": "",
-            "sources": [],
-            "products": [],
-        }
+    st.markdown(f"### 🛍️ {product['name']}")
 
-    result = shopping_agent(user_request)
+    col1, col2, col3 = st.columns(3)
 
-    return result
+    with col1:
+        st.write(f"**Category:** {product['category']}")
+
+    with col2:
+        st.write(f"**Price:** ₹{product['price']:,}")
+
+    with col3:
+        st.write(f"**Stock:** {product['stock']}")
+
+    st.write(
+        "**Features:** "
+        + ", ".join(product["features"])
+    )
+
+    product_name = product["name"]
+
+    search_query = product_name.replace(" ", "+")
+
+    amazon_url = (
+        "https://www.amazon.in/s?k="
+        + search_query
+    )
+
+    flipkart_url = (
+        "https://www.flipkart.com/search?q="
+        + search_query
+    )
+
+    meesho_url = (
+        "https://www.meesho.com/search?q="
+        + search_query
+    )
+
+    myntra_url = (
+        "https://www.myntra.com/"
+        + product_name.replace(" ", "-")
+    )
+
+    st.markdown("**Search this product:**")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        st.link_button(
+            "Amazon India",
+            amazon_url,
+            use_container_width=True
+        )
+
+    with c2:
+        st.link_button(
+            "Flipkart",
+            flipkart_url,
+            use_container_width=True
+        )
+
+    with c3:
+        st.link_button(
+            "Meesho",
+            meesho_url,
+            use_container_width=True
+        )
+
+    with c4:
+        st.link_button(
+            "Myntra",
+            myntra_url,
+            use_container_width=True
+        )
+
+    st.divider()
 
 
 # ============================================================
-# DISPLAY LIVE WEB RESULT
+# WEB RESULT DISPLAY
 # ============================================================
 
-def display_web_result(result):
+def render_web_result(result):
+
+    st.markdown("## 🧠 MERCHX Shopping Intelligence")
 
     if not result:
         return
 
     if not result.get("success"):
-
         st.error(
-            "Shopping Agent Error: "
-            + str(result.get("error", "Unknown error"))
+            result.get(
+                "error",
+                "Shopping agent failed."
+            )
         )
-
         return
 
     text = result.get("text", "")
-    sources = result.get("sources", [])
 
     if text:
-
-        st.markdown("### 🧠 MERCHX Shopping Intelligence")
-
         st.markdown(text)
+
+    sources = result.get("sources", [])
 
     if sources:
 
-        st.markdown("### 🔗 Verified Web Sources")
+        st.markdown("### 🔗 Discovered Web Sources")
 
-        for index, url in enumerate(sources, start=1):
+        for index, url in enumerate(
+            sources,
+            start=1
+        ):
 
-            st.markdown(
-                f"[{index}. Open verified source]({url})"
-            )
-
-
-# ============================================================
-# LOCAL PRODUCT DISPLAY
-# ============================================================
-
-def show_products(products):
-
-    if not products:
-
-        st.info(
-            "No matching products found in the MERCHX internal catalog."
-        )
-
-        return
-
-    st.markdown("### 🛍️ MERCHX Catalog")
-
-    for product in products:
-
-        st.markdown(
-            f"""
-<div class="product-card">
-
-<h3>{product["name"]}</h3>
-
-<p>
-<b>ID:</b> {product["id"]}<br>
-<b>Category:</b> {product["category"]}<br>
-<b>Price:</b> ₹{product["price"]:,}<br>
-<b>Stock:</b> {product["stock"]}
-</p>
-
-<p>
-<b>Features:</b>
-{", ".join(product["features"])}
-</p>
-
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-
-        query = product["name"].replace(" ", "+")
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            st.markdown(
-                f"[🛒 Amazon Search](https://www.amazon.in/s?k={query})"
-            )
-
-        with col2:
-            st.markdown(
-                f"[🛒 Flipkart Search](https://www.flipkart.com/search?q={query})"
-            )
-
-        with col3:
-            st.markdown(
-                f"[🛒 Meesho Search](https://www.meesho.com/search?q={query})"
-            )
-
-        with col4:
-            st.markdown(
-                f"[🛒 Myntra Search](https://www.myntra.com/{query})"
+            st.link_button(
+                f"Open Source {index}",
+                url,
+                use_container_width=True
             )
 
 
@@ -363,19 +272,21 @@ def show_products(products):
 # PURCHASE PIPELINE
 # ============================================================
 
-def purchase_pipeline(
+def run_purchase_pipeline(
     product_id,
-    quantity=1,
-    budget=None,
+    quantity,
+    budget
 ):
 
     product = get_product(product_id)
 
     if product is None:
 
-        st.error("Product not found.")
+        st.error(
+            "Product not found."
+        )
 
-        return None
+        return
 
     # --------------------------------------------------------
     # INVENTORY
@@ -383,26 +294,24 @@ def purchase_pipeline(
 
     inventory = check_inventory(
         product_id,
-        quantity,
+        quantity
     )
 
-    st.markdown("### 📦 Inventory Check")
-
-    if inventory["available"]:
-
-        st.success(
-            f"Inventory PASS — {inventory['available_stock']} "
-            f"units available."
-        )
-
-    else:
+    if not inventory["available"]:
 
         st.error(
-            f"Inventory FAIL — requested {quantity}, "
-            f"available {inventory['available_stock']}."
+            "Inventory check failed."
         )
 
-        return None
+        st.write(
+            "Available stock:",
+            inventory.get(
+                "available_stock",
+                0
+            )
+        )
+
+        return
 
     # --------------------------------------------------------
     # POLICY
@@ -412,176 +321,348 @@ def purchase_pipeline(
         product=product,
         quantity=quantity,
         budget=budget,
-        spent_today=st.session_state.spent_today,
+        spent_today=st.session_state.spent_today
     )
-
-    st.markdown("### 🛡️ Policy Engine")
-
-    if policy["approved"]:
-        st.success("Policy Engine: APPROVED")
-    else:
-
-        st.error("Policy Engine: BLOCKED")
-
-        for reason in policy["reasons"]:
-            st.warning(reason)
 
     # --------------------------------------------------------
     # RISK
     # --------------------------------------------------------
 
-    risk = calculate_risk(
-        product=product,
-        quantity=quantity,
-        total=policy["total"],
-    )
+    try:
 
-    st.markdown("### ⚠️ Risk Engine")
-
-    st.markdown(
-        format_risk_report(risk)
-    )
-
-    # --------------------------------------------------------
-    # HARD BLOCKS
-    # --------------------------------------------------------
-
-    hard_block = any(
-        value == "FAIL"
-        for key, value in policy["checks"].items()
-        if key != "transaction_limit"
-    )
-
-    if hard_block:
-
-        st.error(
-            "Transaction blocked because one or more mandatory "
-            "policy controls failed."
+        risk = calculate_risk(
+            product=product,
+            quantity=quantity,
+            policy_result=policy
         )
 
-        st.session_state.audit_engine.record(
-            event_type="TRANSACTION_BLOCKED",
-            data={
-                "product_id": product_id,
-                "quantity": quantity,
-                "policy": policy,
-                "risk": risk,
-            },
+    except TypeError:
+
+        risk = calculate_risk(
+            product,
+            quantity,
+            policy
         )
-
-        return None
-
-    # --------------------------------------------------------
-    # HUMAN APPROVAL
-    # --------------------------------------------------------
-
-    requires_human = (
-        not policy["approved"]
-        or risk.get("risk_level", "").upper()
-        in ["HIGH", "CRITICAL"]
-    )
-
-    if requires_human:
-
-        st.warning(
-            "🧑‍💻 Human approval required before payment."
-        )
-
-        approval_key = (
-            f"approve_{product_id}_{quantity}"
-        )
-
-        approved = st.checkbox(
-            "I approve this transaction",
-            key=approval_key,
-        )
-
-        if not approved:
-
-            st.info(
-                "Waiting for human approval."
-            )
-
-            st.session_state.pending_purchase = {
-                "product_id": product_id,
-                "quantity": quantity,
-                "total": policy["total"],
-            }
-
-            return None
-
-    # --------------------------------------------------------
-    # SIMULATION
-    # --------------------------------------------------------
-
-    simulation = simulate_transaction(
-        product=product,
-        quantity=quantity,
-        total=policy["total"],
-    )
-
-    st.markdown("### 🧪 Transaction Simulation")
-
-    st.markdown(
-        format_simulation_report(simulation)
-    )
 
     # --------------------------------------------------------
     # EXPLAINABILITY
     # --------------------------------------------------------
 
-    explanation = explain_decision(
-        product=product,
-        policy=policy,
-        risk=risk,
-        simulation=simulation,
-    )
+    try:
 
-    st.markdown("### 🧠 Decision Explainability")
+        explanation = explain_decision(
+            product=product,
+            quantity=quantity,
+            policy_result=policy,
+            risk_result=risk
+        )
 
-    st.markdown(
-        format_explanation(explanation)
-    )
+    except TypeError:
+
+        explanation = explain_decision(
+            product,
+            quantity,
+            policy,
+            risk
+        )
+
+    # --------------------------------------------------------
+    # SIMULATION
+    # --------------------------------------------------------
+
+    try:
+
+        simulation = simulate_transaction(
+            product=product,
+            quantity=quantity,
+            policy_result=policy,
+            risk_result=risk
+        )
+
+    except TypeError:
+
+        simulation = simulate_transaction(
+            product,
+            quantity,
+            policy,
+            risk
+        )
 
     # --------------------------------------------------------
     # AUDIT
     # --------------------------------------------------------
 
-    audit_data = {
-        "product_id": product_id,
-        "product_name": product["name"],
-        "quantity": quantity,
-        "total": policy["total"],
-        "policy": policy,
-        "risk": risk,
-        "simulation": simulation,
-    }
+    st.session_state.audit_engine.record(
+        event_type="PURCHASE_EVALUATED",
+        data={
+            "product_id": product_id,
+            "quantity": quantity,
+            "total": policy["total"],
+            "policy_approved": policy["approved"]
+        }
+    )
+
+    # --------------------------------------------------------
+    # DECISION UI
+    # --------------------------------------------------------
+
+    st.markdown(
+        "## 🧾 MERCHX Authorization Decision"
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+
+        st.metric(
+            "Total",
+            f"₹{policy['total']:,}"
+        )
+
+    with c2:
+
+        st.metric(
+            "Policy",
+            "APPROVED"
+            if policy["approved"]
+            else "BLOCKED"
+        )
+
+    with c3:
+
+        risk_score = risk.get(
+            "risk_score",
+            risk.get("score", 0)
+        )
+
+        st.metric(
+            "Risk Score",
+            str(risk_score)
+        )
+
+    if policy["approved"]:
+
+        st.success(
+            "All MERCHX policy checks passed."
+        )
+
+    else:
+
+        st.error(
+            "MERCHX blocked this transaction."
+        )
+
+        for reason in policy.get(
+            "reasons",
+            []
+        ):
+
+            st.warning(reason)
+
+    # --------------------------------------------------------
+    # DETAILS
+    # --------------------------------------------------------
+
+    with st.expander(
+        "🔎 View Decision Details",
+        expanded=True
+    ):
+
+        st.markdown(
+            "### 🛡️ Policy Checks"
+        )
+
+        st.json(
+            policy.get(
+                "checks",
+                {}
+            )
+        )
+
+        st.markdown(
+            "### ⚠️ Risk Analysis"
+        )
+
+        try:
+
+            st.markdown(
+                format_risk_report(risk)
+            )
+
+        except Exception:
+
+            st.json(risk)
+
+        st.markdown(
+            "### 💡 Explainability"
+        )
+
+        try:
+
+            st.markdown(
+                format_explanation(
+                    explanation
+                )
+            )
+
+        except Exception:
+
+            st.write(explanation)
+
+        st.markdown(
+            "### 🧪 Transaction Simulation"
+        )
+
+        try:
+
+            st.markdown(
+                format_simulation_report(
+                    simulation
+                )
+            )
+
+        except Exception:
+
+            st.write(simulation)
+
+    # --------------------------------------------------------
+    # APPROVAL
+    # --------------------------------------------------------
+
+    if policy["approved"]:
+
+        st.session_state.pending_purchase = {
+            "product_id": product_id,
+            "quantity": quantity,
+            "total": policy["total"]
+        }
+
+        st.info(
+            "MERCHX authorization passed. "
+            "Human approval is required before "
+            "payment simulation."
+        )
+
+    else:
+
+        failed_checks = [
+            key
+            for key, value in policy.get(
+                "checks",
+                {}
+            ).items()
+            if value == "FAIL"
+        ]
+
+        if failed_checks == [
+            "transaction_limit"
+        ]:
+
+            st.warning(
+                "Transaction limit exceeded. "
+                "Human-in-the-Loop escalation is available."
+            )
+
+            st.session_state.pending_purchase = {
+                "product_id": product_id,
+                "quantity": quantity,
+                "total": policy["total"]
+            }
+
+
+# ============================================================
+# HUMAN APPROVAL
+# ============================================================
+
+def approve_pending_purchase():
+
+    pending = (
+        st.session_state.pending_purchase
+    )
+
+    if not pending:
+        return
+
+    product = get_product(
+        pending["product_id"]
+    )
+
+    if product is None:
+
+        st.error(
+            "Pending product no longer exists."
+        )
+
+        st.session_state.pending_purchase = None
+
+        return
+
+    total = pending["total"]
+
+    # --------------------------------------------------------
+    # AUDIT: HUMAN APPROVAL
+    # --------------------------------------------------------
 
     st.session_state.audit_engine.record(
-        event_type="TRANSACTION_AUTHORIZED",
-        data=audit_data,
+        event_type="HUMAN_APPROVAL",
+        data={
+            "product_id": pending["product_id"],
+            "quantity": pending["quantity"],
+            "total": total
+        }
     )
 
     # --------------------------------------------------------
     # SIMULATED PAYMENT
     # --------------------------------------------------------
 
-    st.markdown("### 💳 Payment Layer")
+    st.session_state.audit_engine.record(
+        event_type="PAYMENT_SIMULATED",
+        data={
+            "product_id": pending["product_id"],
+            "quantity": pending["quantity"],
+            "total": total,
+            "payment_rail": "Razorpay Test Mode / Simulation"
+        }
+    )
 
-    st.info(
-        "Razorpay Test Mode integration point — "
-        "payment execution is currently simulated."
+    # --------------------------------------------------------
+    # SPEND
+    # --------------------------------------------------------
+
+    st.session_state.spent_today += total
+
+    # --------------------------------------------------------
+    # MEMORY
+    # --------------------------------------------------------
+
+    st.session_state.memory.log(
+        "purchase",
+        {
+            "product_id": pending["product_id"],
+            "quantity": pending["quantity"],
+            "total": total
+        }
+    )
+
+    # --------------------------------------------------------
+    # RESULT
+    # --------------------------------------------------------
+
+    st.success(
+        "Human approval received."
     )
 
     st.success(
-        "✅ MERCHX authorization completed successfully."
+        "Payment simulation completed successfully."
     )
 
-    st.session_state.spent_today += policy["total"]
+    st.info(
+        "Demo only: no real money was charged "
+        "and no real order was created."
+    )
 
     st.session_state.pending_purchase = None
-
-    return audit_data
 
 
 # ============================================================
@@ -590,72 +671,73 @@ def purchase_pipeline(
 
 def handle_message(user_input):
 
-    if not user_input:
-        return
-
     user_input = user_input.strip()
 
     if not user_input:
         return
 
-    intent = detect_intent(user_input)
-
-    memory = st.session_state.memory
-
-    try:
-        next_step = plan_next_step(
-            intent,
-            user_input,
-            memory,
-        )
-    except Exception:
-        next_step = None
-
-    memory.log(
-        user_input,
-        intent=intent,
-    )
+    # --------------------------------------------------------
+    # CHAT LOG
+    # --------------------------------------------------------
 
     st.session_state.chat_log.append(
         {
             "role": "user",
-            "content": user_input,
-            "intent": intent,
+            "content": user_input
         }
     )
 
-    # ========================================================
-    # HELP
-    # ========================================================
+    # --------------------------------------------------------
+    # INTENT
+    # --------------------------------------------------------
 
-    if intent == "HELP":
+    intent = detect_intent(
+        user_input
+    )
 
-        response = get_agent_response(intent)
+    # --------------------------------------------------------
+    # CONTEXT
+    # --------------------------------------------------------
 
-        st.session_state.chat_log.append(
-            {
-                "role": "assistant",
-                "content": response,
-            }
+    try:
+
+        next_step = plan_next_step(
+            intent,
+            user_input,
+            st.session_state.memory
         )
 
-        return
+    except Exception:
 
-    # ========================================================
-    # SHOPPING INTELLIGENCE
-    # ========================================================
+        next_step = {
+            "step": intent
+        }
+
+    # --------------------------------------------------------
+    # MEMORY
+    # --------------------------------------------------------
+
+    st.session_state.memory.log(
+        "intent",
+        {
+            "input": user_input,
+            "intent": intent,
+            "next_step": next_step
+        }
+    )
+
+    # --------------------------------------------------------
+    # LIVE SHOPPING
+    # --------------------------------------------------------
 
     shopping_keywords = [
         "buy",
-        "purchase",
-        "shop",
-        "shopping",
         "find",
-        "recommend",
+        "search",
         "best",
-        "compare",
+        "cheap",
         "price",
-        "product",
+        "compare",
         "laptop",
         "phone",
         "headphone",
@@ -664,202 +746,162 @@ def handle_message(user_input):
         "keyboard",
         "shoes",
         "shirt",
-        "dress",
         "amazon",
         "flipkart",
         "meesho",
-        "myntra",
+        "myntra"
     ]
 
-    should_use_web_agent = any(
-        keyword in user_input.lower()
-        for keyword in shopping_keywords
+    wants_web = any(
+        word in user_input.lower()
+        for word in shopping_keywords
     )
 
-    if should_use_web_agent:
+    if wants_web and GEMINI_API_KEY:
 
-        with st.spinner(
-            "🔎 MERCHX is researching the live web..."
-        ):
-
-            result = run_live_shopping_agent(
-                user_input
-            )
-
-        st.session_state.web_results = result
+        result = shopping_agent(
+            user_input
+        )
 
         if result.get("success"):
 
-            memory.remember_search(
-                user_input,
-                result.get("text", ""),
-            )
+            st.session_state.web_results = result
 
-        return
-
-    # ========================================================
-    # LOCAL SEARCH
-    # ========================================================
-
-    if intent == "SEARCH":
-
-        results = local_catalog_search(
-            user_input
-        )
-
-        if results:
-
-            memory.remember_search(
-                user_input,
-                results,
-            )
-
-            show_products(results)
-
-        else:
-
-            st.info(
-                "No local catalog match. "
-                "Try a more specific product name."
-            )
-
-        return
-
-    # ========================================================
-    # INVENTORY
-    # ========================================================
-
-    if intent == "INVENTORY":
-
-        results = local_catalog_search(
-            user_input
-        )
-
-        if results:
-
-            for product in results:
-
-                inventory = check_inventory(
-                    product["id"]
-                )
-
-                if inventory["available"]:
-
-                    st.success(
-                        f'{product["name"]}: '
-                        f'{inventory["available_stock"]} units available.'
+            st.session_state.chat_log.append(
+                {
+                    "role": "assistant",
+                    "content": result.get(
+                        "text",
+                        "Live shopping research completed."
                     )
-
-                else:
-
-                    st.error(
-                        f'{product["name"]}: Out of stock.'
-                    )
-
-        else:
-
-            st.info(
-                "No matching product found."
-            )
-
-        return
-
-    # ========================================================
-    # QUOTE
-    # ========================================================
-
-    if intent == "QUOTE":
-
-        results = local_catalog_search(
-            user_input
-        )
-
-        if results:
-
-            product = results[0]
-
-            quantity = 1
-
-            total = (
-                product["price"] * quantity
-            )
-
-            st.markdown("### 🧾 MERCHX Quote")
-
-            st.write(
-                f'**Product:** {product["name"]}'
-            )
-
-            st.write(
-                f'**Quantity:** {quantity}'
-            )
-
-            st.write(
-                f'**Unit Price:** ₹{product["price"]:,}'
-            )
-
-            st.write(
-                f'**Total:** ₹{total:,}'
-            )
-
-            memory.remember_quote(
-                product,
-                quantity,
-                total,
-            )
-
-        else:
-
-            st.info(
-                "No matching product found."
-            )
-
-        return
-
-    # ========================================================
-    # BUY
-    # ========================================================
-
-    if intent == "BUY":
-
-        results = local_catalog_search(
-            user_input
-        )
-
-        if not results:
-
-            st.warning(
-                "I couldn't match that to a MERCHX catalog product."
+                }
             )
 
             return
 
-        product = results[0]
-
-        memory.remember_selection(
-            product
-        )
-
-        purchase_pipeline(
-            product_id=product["id"],
-            quantity=1,
+        st.session_state.chat_log.append(
+            {
+                "role": "assistant",
+                "content": (
+                    "Shopping Agent error: "
+                    + result.get(
+                        "error",
+                        "Unknown error"
+                    )
+                )
+            }
         )
 
         return
 
-    # ========================================================
-    # FALLBACK
-    # ========================================================
+    # --------------------------------------------------------
+    # LOCAL SEARCH
+    # --------------------------------------------------------
 
-    response = get_agent_response(
-        intent
-    )
+    if intent == "SEARCH":
+
+        results = search_local_catalog(
+            user_input
+        )
+
+        if results:
+
+            st.session_state.memory.remember_search(
+                results
+            )
+
+            st.session_state.chat_log.append(
+                {
+                    "role": "assistant",
+                    "content": (
+                        f"Found {len(results)} "
+                        "MERCHX catalog result(s)."
+                    )
+                }
+            )
+
+        else:
+
+            st.session_state.chat_log.append(
+                {
+                    "role": "assistant",
+                    "content": (
+                        "No local catalog match. "
+                        "Add GEMINI_API_KEY to enable "
+                        "live shopping intelligence."
+                    )
+                }
+            )
+
+        return
+
+    # --------------------------------------------------------
+    # DEFAULT AGENT RESPONSE
+    # --------------------------------------------------------
 
     st.session_state.chat_log.append(
         {
             "role": "assistant",
-            "content": response,
+            "content": get_agent_response(
+                intent
+            )
         }
+    )
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.markdown(
+    '<div class="main-title">🛡️ MERCHX</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<div class="subtitle">'
+    'AI-Native Shopping Intelligence & Commerce Protocol'
+    '</div>',
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# TOP STATUS
+# ============================================================
+
+c1, c2, c3, c4 = st.columns(4)
+
+with c1:
+
+    st.metric(
+        "Protocol",
+        "ONLINE"
+    )
+
+with c2:
+
+    st.metric(
+        "Gemini",
+        "CONNECTED"
+        if GEMINI_API_KEY
+        else "OFFLINE"
+    )
+
+with c3:
+
+    st.metric(
+        "Spent Today",
+        f"₹{st.session_state.spent_today:,}"
+    )
+
+with c4:
+
+    st.metric(
+        "Audit Events",
+        len(
+            st.session_state.audit_engine.events
+        )
     )
 
 
@@ -869,75 +911,14 @@ def handle_message(user_input):
 
 with st.sidebar:
 
-    st.markdown("## 🛡️ MERCHX")
-
-    st.caption(
-        "AI-Native Commerce Protocol"
+    st.header(
+        "⚙️ MERCHX Control Center"
     )
 
-    st.divider()
-
-    st.metric(
-        "Today's Spend",
-        f"₹{st.session_state.spent_today:,}",
+    st.markdown(
+        "### 🧠 Agent Stack"
     )
 
-    st.metric(
-        "Audit Events",
-        len(
-            st.session_state.audit_engine.events
-        ),
+    st.write(
+        "• Intent Engine"
     )
-
-    st.divider()
-
-    st.markdown("### 🧠 Agent Stack")
-
-    st.write("🧠 AI Shopping Agent")
-    st.write("🔎 Live Web Research")
-    st.write("📦 Inventory Engine")
-    st.write("🧾 Quote Engine")
-    st.write("🛡️ Policy Engine")
-    st.write("⚠️ Risk Engine")
-    st.write("🧑‍💻 Human Approval")
-    st.write("💳 Payment Layer")
-    st.write("📋 Audit Engine")
-
-    st.divider()
-
-    status = shopping_agent_status()
-
-    if status["status"] == "ONLINE":
-
-        st.success(
-            "Shopping Agent: ONLINE"
-        )
-
-    else:
-
-        st.warning(
-            "Shopping Agent: OFFLINE"
-        )
-
-    st.caption(
-        "Gemini API required for live web shopping."
-    )
-
-    st.divider()
-
-    if st.button(
-        "🔐 Check Audit Integrity",
-        use_container_width=True,
-    ):
-
-        try:
-
-            integrity = (
-                st.session_state.audit_engine.verify_integrity()
-            )
-
-            if integrity:
-
-                st.success(
-    "Audit chain integrity verified."
-)
