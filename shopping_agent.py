@@ -1,7 +1,3 @@
-# ============================================================
-# MERCHX SHOPPING INTELLIGENCE AGENT
-# ============================================================
-
 import os
 import re
 from urllib.parse import quote_plus
@@ -9,17 +5,34 @@ from urllib.parse import quote_plus
 from google import genai
 from google.genai import types
 
+MODEL_NAME = "gemini-2.5-flash"
 
-MODEL_NAME = "gemini-3.8-flash"
+
+def get_api_key():
+    # 1. Environment variable
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+
+    # 2. Streamlit Cloud Secrets fallback
+    if not api_key:
+        try:
+            import streamlit as st
+            api_key = str(st.secrets.get("GEMINI_API_KEY", "")).strip()
+        except Exception:
+            pass
+
+    return api_key
 
 
 def get_client():
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    api_key = get_api_key()
 
     if not api_key:
         return None
 
-    return genai.Client(api_key=api_key)
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception:
+        return None
 
 
 def extract_urls(text):
@@ -28,7 +41,7 @@ def extract_urls(text):
 
     urls = re.findall(
         r"https?://[^\s)\]}>\"']+",
-        text,
+        text
     )
 
     cleaned = []
@@ -43,29 +56,23 @@ def extract_urls(text):
 
 
 def marketplace_search_links(product_name):
-    """
-    Creates legitimate marketplace SEARCH links.
-    These are not fake product pages.
-    """
-
     q = quote_plus(product_name)
 
     return {
         "Amazon India": f"https://www.amazon.in/s?k={q}",
         "Flipkart": f"https://www.flipkart.com/search?q={q}",
-        "Meesho": f"https://www.meesho.com/search?q={q}",
         "Myntra": f"https://www.myntra.com/{q}",
+        "Meesho": f"https://www.meesho.com/search?q={q}",
     }
 
 
 def shopping_agent(user_request):
-
     client = get_client()
 
     if client is None:
         return {
             "success": False,
-            "error": "GEMINI_API_KEY is not configured.",
+            "error": "GEMINI_API_KEY is missing or unavailable.",
             "text": "",
             "sources": [],
             "products": [],
@@ -77,206 +84,87 @@ You are MERCHX Shopping Intelligence Agent.
 USER REQUEST:
 {user_request}
 
-MERCHX is an AI-native commerce intelligence and
-authorization protocol.
+Research REAL products from the live web.
 
-Your job is to research the LIVE web and help the user
-make a better buying decision.
-
-============================================================
-IMPORTANT
-============================================================
-
-Use Google Search grounding.
-
-Research REAL products from REAL websites.
-
-NEVER invent:
-
+Do NOT invent:
 - products
 - prices
 - ratings
-- review counts
 - sellers
 - availability
-- product URLs
+- reviews
+- URLs
 
-If exact information cannot be verified, clearly say:
+If information cannot be verified, say:
+"Not verified."
 
-"Not verified"
+Analyze:
+1. User intent
+2. Real products
+3. Current prices
+4. Sellers
+5. Reviews
+6. Pros and cons
+7. Trust
+8. Risk
+9. Product ranking
+10. Final recommendation
 
-============================================================
-RESEARCH
-============================================================
+For every important product, provide an exact product URL
+ONLY if it was actually discovered during web research.
 
-Understand:
+Structure:
 
-- product category
-- budget
-- features
-- use case
-- quantity
-- brand preference
-- important constraints
+# MERCHX SHOPPING INTELLIGENCE
 
-Then research real products.
+## UNDERSTOOD REQUEST
 
-Prefer legitimate Indian retailers such as:
+## LIVE RESEARCH
 
-Amazon India
-Flipkart
-Croma
-Reliance Digital
-Vijay Sales
-Myntra
-Meesho
-Official brand stores
+## TOP PICKS
 
-Also use reputable review sources when useful.
+### #1 PRODUCT
+- Price:
+- Seller:
+- Availability:
+- Trust:
+- Why recommended:
+- Pros:
+- Cons:
+- Exact Product URL:
 
-============================================================
-URL REQUIREMENT
-============================================================
+### #2 PRODUCT
+- Price:
+- Seller:
+- Availability:
+- Trust:
+- Why recommended:
+- Pros:
+- Cons:
+- Exact Product URL:
 
-For EVERY important product:
+## PRICE COMPARISON
 
-1. Try to find the exact product page URL.
-2. Only output URLs actually discovered from web research.
-3. Never fabricate an exact product URL.
-4. If exact product URL cannot be verified,
-   write:
+## REVIEW INTELLIGENCE
 
-Exact product URL: NOT VERIFIED
+## TRUST & RISK
 
-5. Also provide a marketplace SEARCH LINK section
-   using the product name.
+## MERCHX RECOMMENDATION
 
-These marketplace search links are navigation links,
-NOT claims that the product exists on that marketplace.
+## IMPORTANT
 
-============================================================
-OUTPUT
-============================================================
-
-Return the following structure.
-
-# 🛍️ MERCHX SHOPPING INTELLIGENCE
-
-## 🎯 UNDERSTOOD REQUEST
-
-Explain the user's intent.
-
-## 🔎 LIVE RESEARCH
-
-Explain what was researched.
-
-## 🏆 TOP PICKS
-
-### #1 PRODUCT NAME
-
-Price: ₹...
-Seller: ...
-Availability: ...
-Trust Score: .../100
-
-Why recommended:
-...
-
-Pros:
-- ...
-- ...
-- ...
-
-Cons:
-- ...
-- ...
-- ...
-
-Exact Product URL:
-https://...
-
-If exact URL cannot be verified:
-
-Exact Product URL: NOT VERIFIED
-
-Marketplace Search Links:
-
-Amazon India:
-https://www.amazon.in/...
-
-Flipkart:
-https://www.flipkart.com/...
-
-Myntra:
-https://www.myntra.com/...
-
-Meesho:
-https://www.meesho.com/...
-
-Repeat for #2 and #3 when appropriate.
-
-## 💰 PRICE COMPARISON
-
-| Product | Seller | Price | Trust |
-|---|---|---:|---:|
-
-## ⭐ REVIEW INTELLIGENCE
-
-Summarize review patterns.
-
-## 🛡️ TRUST & RISK
-
-Explain seller/source quality.
-
-## 🧠 MERCHX RECOMMENDATION
-
-BEST OVERALL:
-...
-
-BEST VALUE:
-...
-
-BEST ALTERNATIVE:
-...
-
-## ⚠️ IMPORTANT
-
-Mention anything the user should verify before purchase.
-
-============================================================
-MERCHX CONTROL BOUNDARY
-============================================================
+MERCHX flow:
 
 AI Buyer
-↓
-Live Research
-↓
-Product Intelligence
-↓
-MERCHX Policy
-↓
-Risk Engine
-↓
-Human Approval
-↓
-Payment
+→ Live Research
+→ Product Intelligence
+→ Policy Engine
+→ Risk Engine
+→ Authorization
+→ Human Approval
+→ Payment
 
-The shopping agent MUST NOT claim that payment occurred.
-
-The shopping agent MUST NOT claim that an order was created.
-
-============================================================
-STRICT RULES
-============================================================
-
-- Use live Google Search grounding.
-- Prefer current information.
-- Never fabricate URLs.
-- Never fabricate prices.
-- Never fabricate products.
-- Never fabricate reviews.
-- Clearly mark unverified information.
-- Recommend based on the user's goal, not simply price.
+Do not claim that a payment or order was completed.
 """
 
     try:
@@ -294,13 +182,11 @@ STRICT RULES
 
         text = response.text or ""
 
-        sources = extract_urls(text)
-
         return {
             "success": True,
             "error": "",
             "text": text,
-            "sources": sources,
+            "sources": extract_urls(text),
             "products": [],
         }
 
@@ -315,12 +201,9 @@ STRICT RULES
 
 
 def shopping_agent_status():
-
-    client = get_client()
-
     return {
         "agent": "MERCHX Shopping Intelligence Agent",
-        "status": "ONLINE" if client else "OFFLINE",
+        "status": "ONLINE" if get_client() else "OFFLINE",
         "capabilities": [
             "Intent Understanding",
             "Live Web Research",
