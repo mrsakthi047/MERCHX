@@ -1,5 +1,10 @@
+# MERCHX AI Agent Engine
+# Understands short commands and maps them
+# to safe commerce actions.
+
+SUPPORTED_INTENTS = {
+    ...
 from agent_context import AgentMemory, plan_next_step
-from agent_engine import detect_intent
 
 # one AgentMemory per user session (store in st.session_state, not global)
 memory = st.session_state.setdefault("memory", AgentMemory())
