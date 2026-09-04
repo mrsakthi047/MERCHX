@@ -939,4 +939,5 @@ with st.sidebar:
             if integrity:
 
                 st.success(
-                    "Audit chain integrity ve
+    "Audit chain integrity verified."
+)
