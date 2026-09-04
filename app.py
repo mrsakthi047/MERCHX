@@ -1,27 +1,21 @@
 import os
 import re
 import uuid
+from urllib.parse import quote_plus
 
 import streamlit as st
 
 from agent_engine import detect_intent
-from commerce_engine import (
-    PRODUCTS,
-    check_inventory,
-    search_products,
-)
+from commerce_engine import PRODUCTS, check_inventory, search_products
 from policy_engine import evaluate_policy
 
-
-# ============================================================
-# OPTIONAL MODULES
-# ============================================================
 
 try:
     from risk_engine import calculate_risk, format_risk_report
 except Exception:
     calculate_risk = None
     format_risk_report = None
+
 
 try:
     from explainability_engine import (
@@ -32,20 +26,18 @@ except Exception:
     explain_decision = None
     format_explanation = None
 
+
 try:
     from audit_engine import AuditEngine
 except Exception:
     AuditEngine = None
+
 
 try:
     from shopping_agent import shopping_agent
 except Exception:
     shopping_agent = None
 
-
-# ============================================================
-# PAGE CONFIG
-# ============================================================
 
 st.set_page_config(
     page_title="MERCHX — AI-Native Commerce",
@@ -56,7 +48,7 @@ st.set_page_config(
 
 
 # ============================================================
-# PREMIUM UI
+# STYLE
 # ============================================================
 
 st.markdown(
@@ -74,8 +66,6 @@ st.markdown(
     padding-bottom: 4rem;
 }
 
-/* HERO */
-
 .hero {
     text-align: center;
     padding: 30px 10px 20px;
@@ -88,25 +78,11 @@ st.markdown(
     letter-spacing: -2px;
 }
 
-.hero h1 span {
-    background: linear-gradient(
-        90deg,
-        #ffffff,
-        #8fb8ff
-    );
-
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
 .hero p {
     color: #9aa4b2;
     font-size: 17px;
     margin-top: 10px;
 }
-
-
-/* SEARCH */
 
 .search-wrap {
     border: 1px solid #303846;
@@ -125,15 +101,20 @@ st.markdown(
     margin-top: 10px;
 }
 
-
-/* CARDS */
-
 .card {
     background: #10141b;
     border: 1px solid #252d38;
     border-radius: 18px;
     padding: 20px;
     margin-bottom: 14px;
+}
+
+.link-card {
+    background: #0d1118;
+    border: 1px solid #252d38;
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 10px;
 }
 
 .muted {
@@ -155,9 +136,6 @@ st.markdown(
     color: #b8c1ce;
 }
 
-
-/* FORMS */
-
 div[data-testid="stForm"] {
     border: 0;
     padding: 0;
@@ -174,24 +152,15 @@ button[kind="primaryFormSubmit"] {
     font-weight: 750 !important;
 }
 
-
-/* BUTTONS */
-
 .stButton > button {
     border-radius: 14px;
     min-height: 46px;
     font-weight: 700;
 }
 
-
-/* SIDEBAR */
-
 section[data-testid="stSidebar"] {
     background: #0b0e13;
 }
-
-
-/* LINKS */
 
 a {
     color: #8fb8ff !important;
@@ -208,10 +177,7 @@ a {
 # ============================================================
 
 def get_api_key():
-    return os.getenv(
-        "GEMINI_API_KEY",
-        "",
-    ).strip()
+    return os.getenv("GEMINI_API_KEY", "").strip()
 
 
 def money(value):
@@ -241,28 +207,80 @@ def extract_urls(text):
     return cleaned
 
 
-def marketplace_links(name):
-    query = name.replace(" ", "+")
+def marketplace_links(product_name):
+
+    q = quote_plus(product_name)
 
     return {
-        "Amazon": (
-            f"https://www.amazon.in/s?k={query}"
-        ),
-        "Flipkart": (
-            f"https://www.flipkart.com/search?q={query}"
-        ),
-        "Meesho": (
-            f"https://www.meesho.com/search?q={query}"
-        ),
-        "Myntra": (
-            f"https://www.myntra.com/{query}"
-        ),
+        "Amazon India": f"https://www.amazon.in/s?k={q}",
+        "Flipkart": f"https://www.flipkart.com/search?q={q}",
+        "Meesho": f"https://www.meesho.com/search?q={q}",
+        "Myntra": f"https://www.myntra.com/{q}",
     }
 
 
-# ============================================================
-# LOCAL PRODUCT CARD
-# ============================================================
+def render_marketplace_links(product_name):
+
+    st.markdown(
+        "#### 🛍️ Marketplace Search"
+    )
+
+    st.caption(
+        "These are marketplace search links. "
+        "They do not claim that the exact product "
+        "is available on every marketplace."
+    )
+
+    links = marketplace_links(product_name)
+
+    cols = st.columns(4)
+
+    for col, (name, url) in zip(
+        cols,
+        links.items(),
+    ):
+        with col:
+            st.link_button(
+                f"{name} ↗",
+                url,
+                use_container_width=True,
+            )
+
+
+def render_verified_sources(text):
+
+    urls = extract_urls(text)
+
+    if not urls:
+        st.info(
+            "No exact product URLs were returned "
+            "by the live research response."
+        )
+        return
+
+    st.markdown(
+        "### 🔗 Verified Research Links"
+    )
+
+    for index, url in enumerate(urls, 1):
+
+        st.markdown(
+            f"""
+<div class="link-card">
+<b>Source {index}</b>
+<br>
+<span class="small">{url}</span>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+        st.link_button(
+            f"Open Source {index} ↗",
+            url,
+            use_container_width=True,
+        )
+
 
 def render_local_product(product):
 
@@ -276,8 +294,8 @@ def render_local_product(product):
     )
 
     st.write(
-        f'**{money(product["price"])}**  ·  '
-        f'Category: {product["category"]}  ·  '
+        f'**{money(product["price"])}** · '
+        f'Category: {product["category"]} · '
         f'Stock: {product["stock"]}'
     )
 
@@ -294,22 +312,9 @@ def render_local_product(product):
         unsafe_allow_html=True,
     )
 
-    links = marketplace_links(
+    render_marketplace_links(
         product["name"]
     )
-
-    cols = st.columns(4)
-
-    for col, item in zip(
-        cols,
-        links.items(),
-    ):
-        label, url = item
-
-        with col:
-            st.markdown(
-                f"[{label} ↗]({url})"
-            )
 
     st.markdown(
         "</div>",
@@ -326,10 +331,12 @@ def audit_event(action, payload):
     if "audit_engine" not in st.session_state:
 
         if AuditEngine:
+
             try:
                 st.session_state.audit_engine = AuditEngine()
             except Exception:
                 st.session_state.audit_engine = None
+
         else:
             st.session_state.audit_engine = None
 
@@ -357,7 +364,7 @@ def audit_event(action, payload):
 
 
 # ============================================================
-# MERCHX PURCHASE AUTHORIZATION
+# PURCHASE PIPELINE
 # ============================================================
 
 def run_purchase_pipeline(
@@ -376,18 +383,10 @@ def run_purchase_pipeline(
         * quantity
     )
 
-    # --------------------------------------------------------
-    # INVENTORY
-    # --------------------------------------------------------
-
     inventory = check_inventory(
         product["id"],
         quantity,
     )
-
-    # --------------------------------------------------------
-    # POLICY
-    # --------------------------------------------------------
 
     policy = evaluate_policy(
         product,
@@ -398,10 +397,6 @@ def run_purchase_pipeline(
             0,
         ),
     )
-
-    # --------------------------------------------------------
-    # RISK
-    # --------------------------------------------------------
 
     risk = None
 
@@ -433,10 +428,6 @@ def run_purchase_pipeline(
         except Exception:
             risk = None
 
-    # --------------------------------------------------------
-    # INITIAL DECISION
-    # --------------------------------------------------------
-
     approved = (
         bool(inventory.get("available"))
         and bool(policy.get("approved"))
@@ -444,10 +435,7 @@ def run_purchase_pipeline(
 
     risk_level = "LOW"
 
-    if isinstance(
-        risk,
-        dict,
-    ):
+    if isinstance(risk, dict):
 
         risk_level = str(
             risk.get(
@@ -463,12 +451,7 @@ def run_purchase_pipeline(
             "HIGH",
             "CRITICAL",
         }:
-
             approved = False
-
-    # --------------------------------------------------------
-    # EXPLAINABILITY
-    # --------------------------------------------------------
 
     explanation = None
 
@@ -487,10 +470,6 @@ def run_purchase_pipeline(
 
         except Exception:
             explanation = None
-
-    # --------------------------------------------------------
-    # AUDIT
-    # --------------------------------------------------------
 
     audit_event(
         "PURCHASE_DECISION",
@@ -517,7 +496,7 @@ def run_purchase_pipeline(
 
 
 # ============================================================
-# SEARCH HANDLER
+# SEARCH
 # ============================================================
 
 def handle_search(query):
@@ -536,10 +515,6 @@ def handle_search(query):
         }
     )
 
-    # --------------------------------------------------------
-    # INTENT
-    # --------------------------------------------------------
-
     intent = detect_intent(query)
 
     audit_event(
@@ -551,18 +526,17 @@ def handle_search(query):
     )
 
     # --------------------------------------------------------
-    # GEMINI LIVE SHOPPING AGENT
+    # LIVE GEMINI RESEARCH
     # --------------------------------------------------------
 
     if shopping_agent and get_api_key():
 
         with st.spinner(
-            "🧠 MERCHX is researching the live web..."
+            "🧠 MERCHX is researching live products, "
+            "prices, reviews and sources..."
         ):
 
-            result = shopping_agent(
-                query
-            )
+            result = shopping_agent(query)
 
         if result.get("success"):
 
@@ -577,9 +551,7 @@ def handle_search(query):
             )
 
             if not sources:
-                sources = extract_urls(
-                    text
-                )
+                sources = extract_urls(text)
 
             st.session_state.messages.append(
                 {
@@ -595,12 +567,10 @@ def handle_search(query):
             {
                 "role": "assistant",
                 "content": (
-                    "⚠️ Live Shopping Agent could "
-                    "not complete the research.\n\n"
-                    "MERCHX can still search the "
-                    "local catalog below.\n\n"
-                    f"Status: "
-                    f"{result.get('error', 'Unknown error')}"
+                    "⚠️ MERCHX Live Shopping Agent "
+                    "could not complete the research.\n\n"
+                    "Local catalog fallback is available.\n\n"
+                    f"Error: {result.get('error', 'Unknown error')}"
                 ),
             }
         )
@@ -611,21 +581,15 @@ def handle_search(query):
             {
                 "role": "assistant",
                 "content": (
-                    "🔎 MERCHX live shopping research "
-                    "is offline because GEMINI_API_KEY "
+                    "🔎 MERCHX Live Shopping Agent is "
+                    "offline because GEMINI_API_KEY "
                     "is not configured.\n\n"
-                    "I searched the MERCHX catalog instead."
+                    "Local MERCHX catalog search is available."
                 ),
             }
         )
 
-    # --------------------------------------------------------
-    # LOCAL FALLBACK
-    # --------------------------------------------------------
-
-    results = search_products(
-        query
-    )
+    results = search_products(query)
 
     st.session_state.local_results = results
 
@@ -653,9 +617,7 @@ if "spent_today" not in st.session_state:
 
 with st.sidebar:
 
-    st.markdown(
-        "## 🛒 MERCHX"
-    )
+    st.markdown("## 🛒 MERCHX")
 
     st.caption(
         "AI-Native Commerce Protocol"
@@ -698,9 +660,8 @@ with st.sidebar:
     )
 
     st.caption(
-        "AI can recommend and decide, "
-        "but MERCHX controls whether "
-        "a transaction is allowed."
+        "AI can recommend and research. "
+        "MERCHX controls authorization."
     )
 
 
@@ -712,14 +673,12 @@ st.markdown(
     """
 <div class="hero">
 
-    <h1>
-        🛒 <span>MERCHX</span>
-    </h1>
+<h1>🛒 MERCHX</h1>
 
-    <p>
-        AI-native shopping intelligence
-        with policy-controlled commerce.
-    </p>
+<p>
+AI-native shopping intelligence
+with policy-controlled commerce.
+</p>
 
 </div>
 """,
@@ -728,7 +687,7 @@ st.markdown(
 
 
 # ============================================================
-# ⭐ MAIN SEARCH BAR
+# SEARCH BAR
 # ============================================================
 
 st.markdown(
@@ -744,14 +703,13 @@ with st.form(
     search_query = st.text_input(
         "Search",
         placeholder=(
-            "Try: Find the best wireless "
-            "headphones under ₹5000"
+            "Find the best laptop for AI/ML under ₹70,000..."
         ),
         label_visibility="collapsed",
     )
 
     submitted = st.form_submit_button(
-        "🔎  Search with MERCHX",
+        "🔎 Search with MERCHX",
         use_container_width=True,
         type="primary",
     )
@@ -763,9 +721,9 @@ st.markdown(
 💡 Try:
 "Best laptop for AI/ML under ₹70,000"
 &nbsp; · &nbsp;
-"Compare ANC headphones"
+"Compare ANC headphones under ₹5,000"
 &nbsp; · &nbsp;
-"Find running shoes"
+"Find running shoes under ₹3,000"
 
 </div>
 """,
@@ -777,10 +735,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
-# ============================================================
-# SEARCH ACTION
-# ============================================================
 
 if submitted and search_query.strip():
 
@@ -805,9 +759,7 @@ if st.session_state.messages:
 
         if message["role"] == "user":
 
-            st.markdown(
-                "**You**"
-            )
+            st.markdown("**You**")
 
             st.info(
                 message["content"]
@@ -815,34 +767,60 @@ if st.session_state.messages:
 
         else:
 
-            st.markdown(
-                "**MERCHX**"
-            )
+            st.markdown("**MERCHX**")
 
             st.markdown(
                 message["content"]
             )
 
-            sources = message.get(
-                "sources",
-                [],
+            # Exact URLs discovered by Gemini
+            render_verified_sources(
+                message.get(
+                    "content",
+                    "",
+                )
             )
 
-            if sources:
+            # Marketplace navigation
+            # Uses last user query as search term
+            user_query = st.session_state.get(
+                "last_query",
+                "",
+            )
 
-                with st.expander(
-                    "🔗 Verified research links"
+            if user_query:
+
+                st.markdown(
+                    "### 🛍️ Shop & Compare"
+                )
+
+                st.caption(
+                    "Open a marketplace search for "
+                    "the requested product."
+                )
+
+                links = marketplace_links(
+                    user_query
+                )
+
+                cols = st.columns(4)
+
+                for col, (name, url) in zip(
+                    cols,
+                    links.items(),
                 ):
 
-                    for url in sources:
+                    with col:
 
-                        st.markdown(
-                            f"[{url}]({url})"
+                        st.link_button(
+                            f"{name} ↗",
+                            url,
+                            use_container_width=True,
                         )
 
 
 # ============================================================
-# LOCAL CATALOG RESULTS
+# LOCAL CATALOG
 # ============================================================
 
 if st.session_state.local_results:
@@ -869,8 +847,8 @@ st.markdown(
 )
 
 st.caption(
-    "This is where MERCHX separates AI shopping "
-    "decisions from payment authority."
+    "AI recommendation ≠ payment authority. "
+    "MERCHX makes the authorization decision."
 )
 
 
@@ -922,10 +900,6 @@ budget = (
 )
 
 
-# ============================================================
-# SELECTED PRODUCT
-# ============================================================
-
 st.markdown(
     f"""
 <div class="card">
@@ -949,10 +923,6 @@ st.markdown(
 )
 
 
-# ============================================================
-# AUTHORIZATION BUTTON
-# ============================================================
-
 authorize = st.button(
     "🛡️ Run MERCHX Authorization",
     use_container_width=True,
@@ -972,14 +942,12 @@ if authorize:
 
 
 # ============================================================
-# DECISION RESULT
+# DECISION
 # ============================================================
 
 if "last_decision" in st.session_state:
 
-    result = (
-        st.session_state.last_decision
-    )
+    result = st.session_state.last_decision
 
     st.markdown(
         "### 🔐 MERCHX Decision"
@@ -988,23 +956,18 @@ if "last_decision" in st.session_state:
     c1, c2, c3 = st.columns(3)
 
     with c1:
-
         st.metric(
             "Transaction",
             result["transaction_id"],
         )
 
     with c2:
-
         st.metric(
             "Total",
-            money(
-                result["total"]
-            ),
+            money(result["total"]),
         )
 
     with c3:
-
         st.metric(
             "Risk",
             result["risk_level"],
@@ -1015,8 +978,7 @@ if "last_decision" in st.session_state:
 
         st.success(
             "✅ MERCHX APPROVED — "
-            "transaction passed the current "
-            "inventory, policy and risk gates."
+            "inventory, policy and risk gates passed."
         )
 
     else:
@@ -1026,10 +988,6 @@ if "last_decision" in st.session_state:
             "payment must not proceed."
         )
 
-
-    # --------------------------------------------------------
-    # INVENTORY
-    # --------------------------------------------------------
 
     with st.expander(
         "📦 Inventory Check",
@@ -1041,6 +999,64 @@ if "last_decision" in st.session_state:
         )
 
 
-    # --------------------------------------------------------
-    # POLICY
-   
+    with st.expander(
+        "🛡️ Policy Decision",
+        expanded=True,
+    ):
+
+        st.json(
+            result["policy"]
+        )
+
+
+    with st.expander(
+        "⚠️ Risk Decision"
+    ):
+
+        if (
+            format_risk_report
+            and result["risk"] is not None
+        ):
+
+            try:
+
+                st.markdown(
+                    format_risk_report(
+                        result["risk"]
+                    )
+                )
+
+            except Exception:
+
+                st.json(
+                    result["risk"]
+                )
+
+        else:
+
+            st.json(
+                result["risk"]
+                or {
+                    "risk_level":
+                    result["risk_level"]
+                }
+            )
+
+
+    with st.expander(
+        "💡 Explainability"
+    ):
+
+        if result["explanation"] is not None:
+
+            if format_explanation:
+
+                try:
+
+                    st.markdown(
+                        format_explanation(
+                            result["explanation"]
+                        )
+                    )
+
+               
