@@ -2,45 +2,23 @@ import streamlit as st
 
 from agent_engine import detect_intent, get_agent_response
 from agent_context import AgentMemory, plan_next_step
-
-from commerce_engine import (
-    search_products,
-    check_inventory,
-)
-
+from commerce_engine import search_products, check_inventory
 from policy_engine import evaluate_policy
-
-from risk_engine import (
-    calculate_risk,
-    format_risk_report,
-)
-
-from explainability_engine import (
-    explain_decision,
-    format_explanation,
-)
-
+from risk_engine import calculate_risk, format_risk_report
+from explainability_engine import explain_decision, format_explanation
 from audit_engine import AuditEngine
-
-from simulation_engine import (
-    simulate_transaction,
-    format_simulation_report,
-)
-
-from policy_optimizer import (
-    PolicyOptimizer,
-    format_optimization_report,
-)
+from simulation_engine import simulate_transaction, format_simulation_report
+from policy_optimizer import PolicyOptimizer, format_optimization_report
 
 
 # ============================================================
-# MERCHX CONFIG
+# CONFIG
 # ============================================================
 
 st.set_page_config(
     page_title="MERCHX",
     page_icon="🛡️",
-    layout="wide",
+    layout="wide"
 )
 
 st.title("🛡️ MERCHX")
@@ -85,13 +63,13 @@ def search_catalog(query, budget=None):
 
     results = search_products(
         query,
-        max_price=budget,
+        max_price=budget
     )
 
     if results:
         return results
 
-    fallback_results = []
+    fallback = []
 
     for word in query.split():
 
@@ -100,63 +78,54 @@ def search_catalog(query, budget=None):
 
         matches = search_products(
             word,
-            max_price=budget,
+            max_price=budget
         )
 
         for product in matches:
 
-            if product not in fallback_results:
-                fallback_results.append(product)
+            if product not in fallback:
+                fallback.append(product)
 
-    return fallback_results
+    return fallback
 
 
 # ============================================================
 # PRODUCT DISPLAY
 # ============================================================
 
-def format_products(results):
+def show_products(products):
 
-    if not results:
-        return "❌ **No matching products found.**"
+    if not products:
+        return "❌ No matching products found."
 
-    lines = [
-        "🛒 **MERCHX PRODUCT DISCOVERY**",
-        "",
-    ]
+    text = "🛒 **MERCHX PRODUCT DISCOVERY**\n\n"
 
-    for index, product in enumerate(results, start=1):
+    for index, product in enumerate(products, 1):
 
         features = ", ".join(
             product.get("features", [])
         )
 
-        lines.append(
-            f"### {index}. {product['name']}\n"
-            f"💰 **₹{product['price']:,}**\n"
-            f"📦 Stock: **{product['stock']}**\n"
-            f"🏷️ Category: **{product['category']}**\n"
+        text += (
+            f"**{index}. {product['name']}**\n"
+            f"💰 ₹{product['price']:,}\n"
+            f"📦 Stock: {product['stock']}\n"
+            f"🏷️ Category: {product['category']}\n"
             f"⚙️ {features}\n"
-            f"🆔 `{product['id']}`\n"
+            f"🆔 `{product['id']}`\n\n"
         )
 
-    return "\n".join(lines)
+    return text
 
 
 # ============================================================
 # PURCHASE PIPELINE
 # ============================================================
 
-def run_purchase_pipeline(
-    product,
-    quantity=1,
-    budget=None,
-):
-
-    spent_today = st.session_state.spent_today
+def purchase_pipeline(product, quantity=1, budget=None):
 
     total = product["price"] * quantity
-
+    spent_today = st.session_state.spent_today
 
     # --------------------------------------------------------
     # INVENTORY
@@ -164,12 +133,12 @@ def run_purchase_pipeline(
 
     inventory = check_inventory(
         product["id"],
-        quantity,
+        quantity
     )
 
     if not inventory["available"]:
 
-        audit_event = audit_engine.record_event(
+        event = audit_engine.record_event(
             action="PURCHASE_BLOCKED",
             agent_id="AGENT-001",
             product_id=product["id"],
@@ -177,7 +146,7 @@ def run_purchase_pipeline(
             decision="BLOCKED",
             risk_level="HIGH",
             policy_status="INVENTORY_FAIL",
-            payment_status="NOT_EXECUTED",
+            payment_status="NOT_EXECUTED"
         )
 
         return (
@@ -185,45 +154,37 @@ def run_purchase_pipeline(
             f"Product: {product['name']}\n"
             f"Requested: {quantity}\n"
             f"Available: {inventory['available_stock']}\n\n"
-            f"📋 Audit ID: `{audit_event['audit_id']}`"
+            f"📋 Audit ID: `{event['audit_id']}`"
         )
-
 
     # --------------------------------------------------------
     # POLICY
     # --------------------------------------------------------
 
-    policy_result = evaluate_policy(
+    policy = evaluate_policy(
         product=product,
         quantity=quantity,
         budget=budget,
-        spent_today=spent_today,
+        spent_today=spent_today
     )
-
-
-    # --------------------------------------------------------
-    # HARD POLICY FAILURES
-    # --------------------------------------------------------
 
     hard_failures = []
 
-    for key, status in policy_result["checks"].items():
+    for key, status in policy["checks"].items():
 
         if status == "FAIL" and key != "transaction_limit":
             hard_failures.append(key)
 
-
     transaction_limit_review = (
-        policy_result["checks"]["transaction_limit"] == "FAIL"
+        policy["checks"]["transaction_limit"] == "FAIL"
         and not hard_failures
     )
-
 
     # --------------------------------------------------------
     # RISK
     # --------------------------------------------------------
 
-    risk_result = calculate_risk(
+    risk = calculate_risk(
         amount=total,
         quantity=quantity,
         stock=product["stock"],
@@ -232,23 +193,21 @@ def run_purchase_pipeline(
         transaction_count=len(
             audit_engine.get_events()
         ),
-        policy_violation=bool(hard_failures),
+        policy_violation=bool(hard_failures)
     )
-
 
     # --------------------------------------------------------
     # SIMULATION
     # --------------------------------------------------------
 
-    simulation_result = simulate_transaction(
+    simulation = simulate_transaction(
         product=product,
         quantity=quantity,
         budget=budget,
-        risk_result=risk_result,
-        policy_result=policy_result,
-        vendor_trusted=True,
+        risk_result=risk,
+        policy_result=policy,
+        vendor_trusted=True
     )
-
 
     # --------------------------------------------------------
     # DECISION
@@ -258,14 +217,14 @@ def run_purchase_pipeline(
 
         decision = "BLOCKED"
 
-    elif risk_result["level"] == "HIGH":
+    elif risk["level"] == "HIGH":
 
         decision = "BLOCKED"
 
     elif (
         transaction_limit_review
-        or risk_result["level"] == "MEDIUM"
-        or simulation_result["recommendation"] == "HUMAN_REVIEW"
+        or risk["level"] == "MEDIUM"
+        or simulation["recommendation"] == "HUMAN_REVIEW"
     ):
 
         decision = "HUMAN_APPROVAL_REQUIRED"
@@ -274,40 +233,38 @@ def run_purchase_pipeline(
 
         decision = "APPROVED"
 
-
     # --------------------------------------------------------
-    # EXPLAINABILITY
+    # EXPLANATION
     # --------------------------------------------------------
 
     explanation = explain_decision(
         decision=decision,
-        risk_result=risk_result,
-        policy_result=policy_result,
+        risk_result=risk,
+        policy_result=policy,
         product=product,
         quantity=quantity,
-        total_amount=total,
+        total_amount=total
     )
 
-
-    # ========================================================
-    # BLOCKED
-    # ========================================================
+    # --------------------------------------------------------
+    # BLOCK
+    # --------------------------------------------------------
 
     if decision == "BLOCKED":
 
-        audit_event = audit_engine.record_event(
+        event = audit_engine.record_event(
             action="PURCHASE_BLOCKED",
             agent_id="AGENT-001",
             product_id=product["id"],
             amount=total,
             decision="BLOCKED",
-            risk_level=risk_result["level"],
+            risk_level=risk["level"],
             policy_status="BLOCKED",
             payment_status="NOT_EXECUTED",
             metadata={
-                "policy_reasons": policy_result["reasons"],
-                "hard_failures": hard_failures,
-            },
+                "policy_reasons": policy["reasons"],
+                "hard_failures": hard_failures
+            }
         )
 
         return (
@@ -315,15 +272,14 @@ def run_purchase_pipeline(
             f"Product: {product['name']}\n"
             f"Quantity: {quantity}\n"
             f"Total: ₹{total:,}\n\n"
-            f"{format_risk_report(risk_result)}\n\n"
+            f"{format_risk_report(risk)}\n\n"
             f"{format_explanation(explanation)}\n\n"
-            f"📋 Audit ID: `{audit_event['audit_id']}`"
+            f"📋 Audit ID: `{event['audit_id']}`"
         )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # HUMAN APPROVAL
-    # ========================================================
+    # --------------------------------------------------------
 
     if decision == "HUMAN_APPROVAL_REQUIRED":
 
@@ -332,10 +288,10 @@ def run_purchase_pipeline(
             "quantity": quantity,
             "budget": budget,
             "total": total,
-            "policy": policy_result,
-            "risk": risk_result,
-            "simulation": simulation_result,
-            "explanation": explanation,
+            "policy": policy,
+            "risk": risk,
+            "simulation": simulation,
+            "explanation": explanation
         }
 
         return (
@@ -343,26 +299,25 @@ def run_purchase_pipeline(
             f"Product: {product['name']}\n"
             f"Quantity: {quantity}\n"
             f"Total: ₹{total:,}\n\n"
-            f"{format_risk_report(risk_result)}\n\n"
-            f"{format_simulation_report(simulation_result)}\n\n"
+            f"{format_risk_report(risk)}\n\n"
+            f"{format_simulation_report(simulation)}\n\n"
             f"{format_explanation(explanation)}\n\n"
-            "👇 Review the approval panel below."
+            "👇 Review the approval panel."
         )
 
+    # --------------------------------------------------------
+    # AUTO APPROVAL
+    # --------------------------------------------------------
 
-    # ========================================================
-    # AUTO APPROVED
-    # ========================================================
-
-    audit_event = audit_engine.record_event(
+    event = audit_engine.record_event(
         action="PURCHASE_APPROVED",
         agent_id="AGENT-001",
         product_id=product["id"],
         amount=total,
         decision="APPROVED",
-        risk_level=risk_result["level"],
+        risk_level=risk["level"],
         policy_status="APPROVED",
-        payment_status="SIMULATED_SUCCESS",
+        payment_status="SIMULATED_SUCCESS"
     )
 
     st.session_state.spent_today += total
@@ -372,11 +327,11 @@ def run_purchase_pipeline(
         f"Product: {product['name']}\n"
         f"Quantity: {quantity}\n"
         f"Total: ₹{total:,}\n\n"
-        f"{format_risk_report(risk_result)}\n\n"
+        f"{format_risk_report(risk)}\n\n"
         f"{format_explanation(explanation)}\n\n"
         "💳 Payment: **SIMULATED SUCCESS**\n"
         "📦 Order: **CREATED**\n"
-        f"📋 Audit ID: `{audit_event['audit_id']}`"
+        f"📋 Audit ID: `{event['audit_id']}`"
     )
 
 
@@ -384,25 +339,24 @@ def run_purchase_pipeline(
 # AGENT HANDLER
 # ============================================================
 
-def handle_user_message(user_input):
+def handle_message(user_input):
 
     intent = detect_intent(user_input)
 
     step = plan_next_step(
         intent,
         user_input,
-        memory,
+        memory
     )
 
     memory.log(
         user_input,
         intent,
-        step,
+        step
     )
 
     action = step["action"]
     payload = step["payload"]
-
 
     # --------------------------------------------------------
     # HELP
@@ -411,7 +365,6 @@ def handle_user_message(user_input):
     if action == "HELP":
 
         return get_agent_response("HELP")
-
 
     # --------------------------------------------------------
     # ASK PRODUCT
@@ -427,15 +380,13 @@ def handle_user_message(user_input):
             "• smartwatch"
         )
 
-
     # --------------------------------------------------------
-    # ASK ORDER ID
+    # ORDER ID
     # --------------------------------------------------------
 
     if action == "ASK_ORDER_ID":
 
         return "📦 Please provide the order ID."
-
 
     # --------------------------------------------------------
     # SEARCH
@@ -443,28 +394,24 @@ def handle_user_message(user_input):
 
     if action == "SEARCH":
 
-        # Normal search
         if "keyword" in payload:
 
             keyword = payload["keyword"]
-
             budget = payload.get("budget")
 
             results = search_catalog(
                 keyword,
-                budget,
+                budget
             )
 
             memory.remember_search(
                 results,
                 budget,
-                payload.get("quantity"),
+                payload.get("quantity")
             )
 
-            return format_products(results)
+            return show_products(results)
 
-
-        # "best" / "cheapest"
         if "product" in payload:
 
             product = payload["product"]
@@ -481,7 +428,6 @@ def handle_user_message(user_input):
                 "👉 Say **buy** to continue."
             )
 
-
     # --------------------------------------------------------
     # SEARCH THEN BUY
     # --------------------------------------------------------
@@ -489,27 +435,25 @@ def handle_user_message(user_input):
     if action == "SEARCH_THEN_BUY":
 
         keyword = payload["keyword"]
-
         budget = payload.get("budget")
 
         results = search_catalog(
             keyword,
-            budget,
+            budget
         )
 
         memory.remember_search(
             results,
             budget,
-            payload.get("quantity"),
+            payload.get("quantity")
         )
 
         return (
-            format_products(results)
+            show_products(results)
             + "\n\n"
             "👉 Say **best**, **cheapest**, "
             "or the exact product name."
         )
-
 
     # --------------------------------------------------------
     # COMPARE
@@ -520,32 +464,23 @@ def handle_user_message(user_input):
         results = memory.last_search_results
 
         if not results:
-
             return "🔎 Search for a product first."
 
         if len(results) < 2:
+            return "⚠️ Need at least two products to compare."
 
-            return (
-                "⚠️ Need at least two products "
-                "to compare."
-            )
-
-        lines = [
-            "⚖️ **MERCHX SMART COMPARISON**",
-            "",
-        ]
+        text = "⚖️ **MERCHX SMART COMPARISON**\n\n"
 
         for product in results:
 
-            lines.append(
-                f"### {product['name']}\n"
+            text += (
+                f"**{product['name']}**\n"
                 f"💰 ₹{product['price']:,}\n"
                 f"📦 Stock: {product['stock']}\n"
-                f"⚙️ {', '.join(product['features'])}\n"
+                f"⚙️ {', '.join(product['features'])}\n\n"
             )
 
-        return "\n".join(lines)
-
+        return text
 
     # --------------------------------------------------------
     # QUOTE
@@ -554,23 +489,15 @@ def handle_user_message(user_input):
     if action == "QUOTE":
 
         product = payload["product"]
-
-        quantity = payload.get(
-            "quantity",
-            1,
-        )
-
+        quantity = payload.get("quantity", 1)
         total = product["price"] * quantity
 
         quote = {
-            "id": (
-                f"MX-QT-"
-                f"{len(audit_engine.get_events()) + 1:04d}"
-            ),
+            "id": f"MX-QT-{len(audit_engine.get_events()) + 1:04d}",
             "product_id": product["id"],
             "product": product["name"],
             "quantity": quantity,
-            "total": total,
+            "total": total
         }
 
         memory.remember_quote(quote)
@@ -585,7 +512,6 @@ def handle_user_message(user_input):
             "Validity: **10 minutes**"
         )
 
-
     # --------------------------------------------------------
     # INVENTORY
     # --------------------------------------------------------
@@ -593,15 +519,11 @@ def handle_user_message(user_input):
     if action == "INVENTORY":
 
         product = payload["product"]
-
-        quantity = payload.get(
-            "quantity",
-            1,
-        )
+        quantity = payload.get("quantity", 1)
 
         inventory = check_inventory(
             product["id"],
-            quantity,
+            quantity
         )
 
         if inventory["available"]:
@@ -609,38 +531,29 @@ def handle_user_message(user_input):
             return (
                 "📦 **IN STOCK**\n\n"
                 f"{product['name']}\n"
-                f"Available: "
-                f"{inventory['available_stock']} units"
+                f"Available: {inventory['available_stock']} units"
             )
 
         return (
             "❌ **INSUFFICIENT STOCK**\n\n"
-            f"Available: "
-            f"{inventory['available_stock']} units"
+            f"Available: {inventory['available_stock']} units"
         )
 
-
     # --------------------------------------------------------
-    # PURCHASE
+    # BUY
     # --------------------------------------------------------
 
     if action == "RUN_PURCHASE_PIPELINE":
 
         product = payload["product"]
-
-        quantity = payload.get(
-            "quantity",
-            1,
-        )
-
+        quantity = payload.get("quantity", 1)
         budget = memory.budget_hint
 
-        return run_purchase_pipeline(
+        return purchase_pipeline(
             product,
             quantity,
-            budget,
+            budget
         )
-
 
     return get_agent_response(intent)
 
@@ -651,16 +564,16 @@ def handle_user_message(user_input):
 
 with st.sidebar:
 
-    st.header("🛡️ MERCHX Control")
+    st.header("🛡️ MERCHX CONTROL")
 
     st.metric(
         "Today's Spend",
-        f"₹{st.session_state.spent_today:,}",
+        f"₹{st.session_state.spent_today:,}"
     )
 
     st.metric(
         "Audit Events",
-        len(audit_engine.get_events()),
+        len(audit_engine.get_events())
     )
 
     st.divider()
@@ -681,28 +594,22 @@ with st.sidebar:
 
     if st.button(
         "🔍 Verify Audit Integrity",
-        use_container_width=True,
+        use_container_width=True
     ):
 
         if audit_engine.verify_integrity():
-
-            st.success(
-                "Audit chain integrity verified."
-            )
-
+            st.success("Audit chain integrity verified.")
         else:
-
-            st.error(
-                "Audit chain integrity check failed."
-            )
-
+            st.error("Audit chain integrity check failed.")
 
     if st.button(
         "🧹 Clear Chat",
-        use_container_width=True,
+        use_container_width=True
     ):
 
         st.session_state.chat_log = []
+        st.session_state.memory = AgentMemory()
+        st.session_state.pending_purchase = None
 
         st.rerun()
 
@@ -713,16 +620,12 @@ with st.sidebar:
 
 pending = st.session_state.pending_purchase
 
-
 if pending:
 
-    st.warning(
-        "🟡 HUMAN-IN-THE-LOOP APPROVAL"
-    )
+    st.warning("🟡 HUMAN-IN-THE-LOOP APPROVAL")
 
     product = pending["product"]
     risk = pending["risk"]
-    simulation = pending["simulation"]
 
     st.write(
         f"**Product:** {product['name']}"
@@ -737,13 +640,10 @@ if pending:
     )
 
     st.write(
-        f"**Risk:** "
-        f"{risk['level']} — {risk['score']}/100"
+        f"**Risk:** {risk['level']} — {risk['score']}/100"
     )
 
-    with st.expander(
-        "🔎 View Risk & Simulation"
-    ):
+    with st.expander("🔎 View Details"):
 
         st.markdown(
             format_risk_report(risk)
@@ -751,25 +651,26 @@ if pending:
 
         st.markdown(
             format_simulation_report(
-                simulation
+                pending["simulation"]
             )
         )
 
-    col1, col2 = st.columns(2)
+        st.markdown(
+            format_explanation(
+                pending["explanation"]
+            )
+        )
 
+    approve_col, reject_col = st.columns(2)
 
-    # --------------------------------------------------------
-    # APPROVE
-    # --------------------------------------------------------
-
-    with col1:
+    with approve_col:
 
         if st.button(
             "✅ APPROVE TRANSACTION",
-            use_container_width=True,
+            use_container_width=True
         ):
 
-            audit_event = audit_engine.record_event(
+            event = audit_engine.record_event(
                 action="HUMAN_APPROVAL",
                 agent_id="AGENT-001",
                 product_id=product["id"],
@@ -777,13 +678,10 @@ if pending:
                 decision="APPROVED_BY_HUMAN",
                 risk_level=risk["level"],
                 policy_status="APPROVED",
-                payment_status="SIMULATED_SUCCESS",
+                payment_status="SIMULATED_SUCCESS"
             )
 
-            st.session_state.spent_today += (
-                pending["total"]
-            )
-
+            st.session_state.spent_today += pending["total"]
             st.session_state.pending_purchase = None
 
             st.success(
@@ -791,26 +689,27 @@ if pending:
             )
 
             st.info(
-                "💳 Simulated payment successful\n\n"
-                "📦 Order created\n\n"
-                f"📋 Audit ID: `{audit_event['audit_id']}`"
+                "💳 Simulated payment successful"
+            )
+
+            st.info(
+                "📦 Order created"
+            )
+
+            st.info(
+                f"📋 Audit ID: `{event['audit_id']}`"
             )
 
             st.rerun()
 
-
-    # --------------------------------------------------------
-    # REJECT
-    # --------------------------------------------------------
-
-    with col2:
+    with reject_col:
 
         if st.button(
             "❌ REJECT TRANSACTION",
-            use_container_width=True,
+            use_container_width=True
         ):
 
-            audit_event = audit_engine.record_event(
+            event = audit_engine.record_event(
                 action="HUMAN_REJECTION",
                 agent_id="AGENT-001",
                 product_id=product["id"],
@@ -818,10 +717,70 @@ if pending:
                 decision="REJECTED_BY_HUMAN",
                 risk_level=risk["level"],
                 policy_status="REVIEW",
-                payment_status="NOT_EXECUTED",
+                payment_status="NOT_EXECUTED"
             )
 
             st.session_state.pending_purchase = None
 
             st.error(
-                "Transaction reject
+                "Transaction rejected."
+            )
+
+            st.info(
+                f"📋 Audit ID: `{event['audit_id']}`"
+            )
+
+            st.rerun()
+
+
+# ============================================================
+# CHAT HISTORY
+# ============================================================
+
+for entry in st.session_state.chat_log:
+
+    with st.chat_message(
+        entry["role"]
+    ):
+
+        st.markdown(
+            entry["text"]
+        )
+
+
+# ============================================================
+# CHAT INPUT
+# ============================================================
+
+user_input = st.chat_input(
+    "Try: headphones • best • cheapest • compare • quote • buy"
+)
+
+if user_input:
+
+    st.session_state.chat_log.append(
+        {
+            "role": "user",
+            "text": user_input
+        }
+    )
+
+    with st.chat_message("user"):
+
+        st.markdown(user_input)
+
+    response = handle_message(user_input)
+
+    with st.chat_message("assistant"):
+
+        st.markdown(response)
+
+    st.session_state.chat_log.append(
+        {
+            "role": "assistant",
+            "text": response
+        }
+    )
+
+
+# =================================
