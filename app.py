@@ -1,5 +1,10 @@
+import os
+import json
+import re
 import streamlit as st
-from urllib.parse import quote_plus
+
+from google import genai
+from google.genai import types
 
 from agent_engine import detect_intent, get_agent_response
 from agent_context import AgentMemory, plan_next_step
@@ -17,67 +22,90 @@ from policy_optimizer import PolicyOptimizer
 # ============================================================
 
 st.set_page_config(
-    page_title="MERCHX",
+    page_title="MERCHX — AI Shopping Agent",
     page_icon="🛡️",
     layout="wide"
 )
 
-st.title("🛡️ MERCHX")
-st.caption("AI-Native Commerce Protocol")
-
 
 # ============================================================
-# MARKETPLACE LINK ENGINE
+# CUSTOM CSS
 # ============================================================
 
-def marketplace_links(product_name):
+st.markdown(
     """
-    Generate clickable marketplace search links.
+    <style>
 
-    These links search for the exact MERCHX product name
-    on each marketplace instead of inventing a fake product URL.
-    """
-
-    query = quote_plus(product_name)
-
-    return {
-        "Amazon": f"https://www.amazon.in/s?k={query}",
-        "Flipkart": f"https://www.flipkart.com/search?q={query}",
-        "Meesho": f"https://www.meesho.com/search?q={query}",
-        "Myntra": f"https://www.myntra.com/search?q={query}",
+    .main-title {
+        font-size: 42px;
+        font-weight: 800;
+        margin-bottom: 0;
     }
 
+    .subtitle {
+        color: #888;
+        font-size: 16px;
+        margin-bottom: 25px;
+    }
 
-def render_marketplace_links(product_name):
-    """
-    Render clickable marketplace buttons/links.
-    """
+    .agent-card {
+        padding: 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(128,128,128,0.25);
+        margin-bottom: 15px;
+    }
 
-    links = marketplace_links(product_name)
+    .score {
+        font-size: 32px;
+        font-weight: 800;
+    }
 
-    st.markdown("### 🛍️ Shop on Marketplace")
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-    col1, col2, col3, col4 = st.columns(4)
 
-    with col1:
-        st.markdown(
-            f"[🟠 **Amazon**]({links['Amazon']})"
-        )
+# ============================================================
+# HEADER
+# ============================================================
 
-    with col2:
-        st.markdown(
-            f"[🔵 **Flipkart**]({links['Flipkart']})"
-        )
+st.markdown(
+    '<div class="main-title">🛡️ MERCHX</div>',
+    unsafe_allow_html=True
+)
 
-    with col3:
-        st.markdown(
-            f"[🩷 **Meesho**]({links['Meesho']})"
-        )
+st.markdown(
+    '<div class="subtitle">'
+    'AI-Native Shopping Intelligence & Commerce Protocol'
+    '</div>',
+    unsafe_allow_html=True
+)
 
-    with col4:
-        st.markdown(
-            f"[🟣 **Myntra**]({links['Myntra']})"
-        )
+
+# ============================================================
+# GEMINI CLIENT
+# ============================================================
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+
+    try:
+        GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        GEMINI_API_KEY = None
+
+
+if GEMINI_API_KEY:
+
+    client = genai.Client(
+        api_key=GEMINI_API_KEY
+    )
+
+else:
+
+    client = None
 
 
 # ============================================================
@@ -102,6 +130,9 @@ if "spent_today" not in st.session_state:
 if "pending_purchase" not in st.session_state:
     st.session_state.pending_purchase = None
 
+if "web_results" not in st.session_state:
+    st.session_state.web_results = []
+
 
 memory = st.session_state.memory
 audit_engine = st.session_state.audit_engine
@@ -109,7 +140,7 @@ policy_optimizer = st.session_state.policy_optimizer
 
 
 # ============================================================
-# PRODUCT SEARCH
+# LOCAL PRODUCT SEARCH
 # ============================================================
 
 def search_catalog(query, budget=None):
@@ -145,98 +176,305 @@ def search_catalog(query, budget=None):
 
 
 # ============================================================
+# AI WEB SHOPPING AGENT
+# ============================================================
+
+def run_web_shopping_agent(user_query):
+
+    if not client:
+
+        return {
+            "error": (
+                "Gemini API key not configured. "
+                "Add GEMINI_API_KEY to Streamlit secrets."
+            )
+        }
+
+    prompt = f"""
+You are MERCHX, an autonomous AI shopping intelligence agent.
+
+User request:
+{user_query}
+
+Your job is to research the web and identify REAL products.
+
+IMPORTANT RULES:
+
+1. Search the live web.
+2. Prefer official retailer/product pages.
+3. Never invent a product URL.
+4. Never invent a price.
+5. Never invent ratings or review counts.
+6. If exact information cannot be verified, say "Not verified".
+7. Compare multiple retailers where possible.
+8. Find the best value option.
+9. Analyse available reviews.
+10. Give concise pros and cons.
+11. Explain why the recommended product is best.
+12. Return REAL source URLs from search results.
+13. Do not claim that you purchased anything.
+14. Do not claim that payment happened.
+
+Search these marketplaces when relevant:
+
+Amazon India
+Flipkart
+Myntra
+Meesho
+
+Also search other trustworthy stores if useful.
+
+Return the answer using this structure:
+
+PRODUCT_RESULTS
+
+For every product include:
+
+NAME:
+BRAND:
+PRICE:
+RETAILER:
+RATING:
+REVIEW_COUNT:
+PRODUCT_URL:
+SOURCE_URL:
+PROS:
+- ...
+CONS:
+- ...
+TRUST_SCORE:
+VALUE_SCORE:
+
+Then:
+
+BEST_PICK:
+product name
+
+WHY:
+short explanation
+
+PRICE_COMPARISON:
+retailer + price + URL
+
+REVIEW_INTELLIGENCE:
+short summary
+
+MERCHX_RECOMMENDATION:
+short recommendation
+
+VERIFICATION:
+what was verified and what was not
+"""
+
+    try:
+
+        response = client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[
+                    types.Tool(
+                        google_search=types.GoogleSearch()
+                    )
+                ]
+            )
+        )
+
+        return {
+            "text": response.text
+        }
+
+    except Exception as error:
+
+        return {
+            "error": str(error)
+        }
+
+
+# ============================================================
+# EXTRACT URLS
+# ============================================================
+
+def extract_urls(text):
+
+    if not text:
+        return []
+
+    urls = re.findall(
+        r'https?://[^\s)\]}>"]+',
+        text
+    )
+
+    clean_urls = []
+
+    for url in urls:
+
+        url = url.rstrip(".,;")
+
+        if url not in clean_urls:
+            clean_urls.append(url)
+
+    return clean_urls
+
+
+# ============================================================
+# DISPLAY WEB SHOPPING RESULT
+# ============================================================
+
+def display_web_result(result):
+
+    if result.get("error"):
+
+        st.error(
+            f"⚠️ {result['error']}"
+        )
+
+        return
+
+    text = result.get(
+        "text",
+        ""
+    )
+
+    st.markdown(
+        "## 🧠 MERCHX SHOPPING INTELLIGENCE"
+    )
+
+    st.markdown(text)
+
+    urls = extract_urls(text)
+
+    if urls:
+
+        st.markdown(
+            "### 🔗 Verified Web Sources"
+        )
+
+        for index, url in enumerate(
+            urls,
+            1
+        ):
+
+            st.markdown(
+                f"[🌐 Open Source {index}]({url})"
+            )
+
+    st.divider()
+
+    st.success(
+        "MERCHX completed live web research."
+    )
+
+
+# ============================================================
 # PRODUCT DISPLAY
 # ============================================================
 
 def show_products(products):
 
     if not products:
-        st.error("❌ No matching products found.")
+
+        st.warning(
+            "❌ No local MERCHX products found."
+        )
+
         return
 
-    st.markdown("## 🛒 MERCHX PRODUCT DISCOVERY")
+    st.markdown(
+        "## 🛒 MERCHX CATALOG"
+    )
 
-    for index, product in enumerate(products, 1):
+    for index, product in enumerate(
+        products,
+        1
+    ):
 
         st.markdown("---")
 
-        st.markdown(
-            f"### {index}. {product['name']}"
+        col1, col2 = st.columns(
+            [3, 1]
         )
-
-        col1, col2 = st.columns([2, 1])
 
         with col1:
 
             st.markdown(
-                f"💰 **Price:** ₹{product['price']:,}"
+                f"### {index}. {product['name']}"
             )
 
-            st.markdown(
-                f"📦 **Stock:** {product['stock']}"
+            st.write(
+                f"💰 ₹{product['price']:,}"
             )
 
-            st.markdown(
-                f"🏷️ **Category:** {product['category']}"
+            st.write(
+                f"📦 Stock: {product['stock']}"
             )
 
-            st.markdown(
-                f"⚙️ **Features:** "
-                f"{', '.join(product.get('features', []))}"
+            st.write(
+                f"🏷️ {product['category']}"
             )
 
-            st.markdown(
-                f"🆔 **Product ID:** `{product['id']}`"
+            st.write(
+                "⚙️ "
+                + ", ".join(
+                    product.get(
+                        "features",
+                        []
+                    )
+                )
+            )
+
+            st.code(
+                product["id"]
             )
 
         with col2:
 
-            st.markdown("#### 🛍️ Marketplace")
-
-            links = marketplace_links(
-                product["name"]
+            st.markdown(
+                "#### Marketplace"
             )
+
+            query = product["name"]
 
             st.link_button(
                 "🟠 Amazon",
-                links["Amazon"],
+                f"https://www.amazon.in/s?k={query.replace(' ', '+')}",
                 use_container_width=True
             )
 
             st.link_button(
                 "🔵 Flipkart",
-                links["Flipkart"],
+                f"https://www.flipkart.com/search?q={query.replace(' ', '+')}",
                 use_container_width=True
             )
 
             st.link_button(
                 "🩷 Meesho",
-                links["Meesho"],
+                f"https://www.meesho.com/search?q={query.replace(' ', '+')}",
                 use_container_width=True
             )
 
             st.link_button(
                 "🟣 Myntra",
-                links["Myntra"],
+                f"https://www.myntra.com/search?q={query.replace(' ', '+')}",
                 use_container_width=True
             )
-
-    st.markdown("---")
 
 
 # ============================================================
 # PURCHASE PIPELINE
 # ============================================================
 
-def purchase_pipeline(product, quantity=1, budget=None):
+def purchase_pipeline(
+    product,
+    quantity=1,
+    budget=None
+):
 
     total = product["price"] * quantity
 
-    spent_today = st.session_state.spent_today
-
-    # --------------------------------------------------------
-    # INVENTORY CHECK
-    # --------------------------------------------------------
+    spent_today = (
+        st.session_state.spent_today
+    )
 
     inventory = check_inventory(
         product["id"],
@@ -260,13 +498,11 @@ def purchase_pipeline(product, quantity=1, budget=None):
             "🚫 **PURCHASE BLOCKED**\n\n"
             f"Product: {product['name']}\n"
             f"Requested: {quantity}\n"
-            f"Available: {inventory['available_stock']}\n\n"
-            f"📋 Audit ID: `{event['audit_id']}`"
+            f"Available: "
+            f"{inventory['available_stock']}\n\n"
+            f"📋 Audit ID: "
+            f"`{event['audit_id']}`"
         )
-
-    # --------------------------------------------------------
-    # POLICY ENGINE
-    # --------------------------------------------------------
 
     policy = evaluate_policy(
         product=product,
@@ -279,17 +515,18 @@ def purchase_pipeline(product, quantity=1, budget=None):
 
     for key, status in policy["checks"].items():
 
-        if status == "FAIL" and key != "transaction_limit":
+        if (
+            status == "FAIL"
+            and key != "transaction_limit"
+        ):
+
             hard_failures.append(key)
 
     transaction_limit_review = (
-        policy["checks"]["transaction_limit"] == "FAIL"
+        policy["checks"]["transaction_limit"]
+        == "FAIL"
         and not hard_failures
     )
-
-    # --------------------------------------------------------
-    # RISK ENGINE
-    # --------------------------------------------------------
 
     risk = calculate_risk(
         amount=total,
@@ -300,12 +537,10 @@ def purchase_pipeline(product, quantity=1, budget=None):
         transaction_count=len(
             audit_engine.get_events()
         ),
-        policy_violation=bool(hard_failures)
+        policy_violation=bool(
+            hard_failures
+        )
     )
-
-    # --------------------------------------------------------
-    # SIMULATION ENGINE
-    # --------------------------------------------------------
 
     simulation = simulate_transaction(
         product=product,
@@ -315,10 +550,6 @@ def purchase_pipeline(product, quantity=1, budget=None):
         policy_result=policy,
         vendor_trusted=True
     )
-
-    # --------------------------------------------------------
-    # DECISION
-    # --------------------------------------------------------
 
     if hard_failures:
 
@@ -331,18 +562,17 @@ def purchase_pipeline(product, quantity=1, budget=None):
     elif (
         transaction_limit_review
         or risk["level"] == "MEDIUM"
-        or simulation["recommendation"] == "HUMAN_REVIEW"
+        or simulation["recommendation"]
+        == "HUMAN_REVIEW"
     ):
 
-        decision = "HUMAN_APPROVAL_REQUIRED"
+        decision = (
+            "HUMAN_APPROVAL_REQUIRED"
+        )
 
     else:
 
         decision = "APPROVED"
-
-    # --------------------------------------------------------
-    # EXPLAINABILITY
-    # --------------------------------------------------------
 
     explanation = explain_decision(
         decision=decision,
@@ -352,10 +582,6 @@ def purchase_pipeline(product, quantity=1, budget=None):
         quantity=quantity,
         total_amount=total
     )
-
-    # --------------------------------------------------------
-    # BLOCKED
-    # --------------------------------------------------------
 
     if decision == "BLOCKED":
 
@@ -369,8 +595,11 @@ def purchase_pipeline(product, quantity=1, budget=None):
             policy_status="BLOCKED",
             payment_status="NOT_EXECUTED",
             metadata={
-                "policy_reasons": policy["reasons"],
-                "hard_failures": hard_failures
+                "policy_reasons": policy[
+                    "reasons"
+                ],
+                "hard_failures":
+                    hard_failures
             }
         )
 
@@ -381,23 +610,28 @@ def purchase_pipeline(product, quantity=1, budget=None):
             f"Total: ₹{total:,}\n\n"
             f"{format_risk_report(risk)}\n\n"
             f"{format_explanation(explanation)}\n\n"
-            f"📋 Audit ID: `{event['audit_id']}`"
+            f"📋 Audit ID: "
+            f"`{event['audit_id']}`"
         )
-
-    # --------------------------------------------------------
-    # HUMAN APPROVAL
-    # --------------------------------------------------------
 
     if decision == "HUMAN_APPROVAL_REQUIRED":
 
         st.session_state.pending_purchase = {
+
             "product": product,
+
             "quantity": quantity,
+
             "budget": budget,
+
             "total": total,
+
             "policy": policy,
+
             "risk": risk,
+
             "simulation": simulation,
+
             "explanation": explanation
         }
 
@@ -408,13 +642,8 @@ def purchase_pipeline(product, quantity=1, budget=None):
             f"Total: ₹{total:,}\n\n"
             f"{format_risk_report(risk)}\n\n"
             f"{format_simulation_report(simulation)}\n\n"
-            f"{format_explanation(explanation)}\n\n"
-            "👇 Review the approval panel."
+            f"{format_explanation(explanation)}"
         )
-
-    # --------------------------------------------------------
-    # AUTO APPROVAL
-    # --------------------------------------------------------
 
     event = audit_engine.record_event(
         action="PURCHASE_APPROVED",
@@ -438,7 +667,8 @@ def purchase_pipeline(product, quantity=1, budget=None):
         f"{format_explanation(explanation)}\n\n"
         "💳 Payment: **SIMULATED SUCCESS**\n"
         "📦 Order: **CREATED**\n"
-        f"📋 Audit ID: `{event['audit_id']}`"
+        f"📋 Audit ID: "
+        f"`{event['audit_id']}`"
     )
 
 
@@ -448,7 +678,9 @@ def purchase_pipeline(product, quantity=1, budget=None):
 
 def handle_message(user_input):
 
-    intent = detect_intent(user_input)
+    intent = detect_intent(
+        user_input
+    )
 
     step = plan_next_step(
         intent,
@@ -463,7 +695,44 @@ def handle_message(user_input):
     )
 
     action = step["action"]
+
     payload = step["payload"]
+
+    # --------------------------------------------------------
+    # AI WEB SHOPPING
+    # --------------------------------------------------------
+
+    shopping_keywords = [
+        "find",
+        "search",
+        "best",
+        "cheapest",
+        "price",
+        "compare",
+        "buy",
+        "shop",
+        "recommend",
+        "reviews",
+        "review",
+        "amazon",
+        "flipkart",
+        "myntra",
+        "meesho"
+    ]
+
+    if any(
+        word in user_input.lower()
+        for word in shopping_keywords
+    ):
+
+        result = run_web_shopping_agent(
+            user_input
+        )
+
+        return {
+            "type": "WEB",
+            "data": result
+        }
 
     # --------------------------------------------------------
     # HELP
@@ -471,29 +740,9 @@ def handle_message(user_input):
 
     if action == "HELP":
 
-        return get_agent_response("HELP")
-
-    # --------------------------------------------------------
-    # ASK PRODUCT
-    # --------------------------------------------------------
-
-    if action == "ASK_PRODUCT":
-
-        return (
-            "🛒 **Which product are you looking for?**\n\n"
-            "Examples:\n"
-            "• headphones\n"
-            "• laptop\n"
-            "• smartwatch"
+        return get_agent_response(
+            "HELP"
         )
-
-    # --------------------------------------------------------
-    # ORDER ID
-    # --------------------------------------------------------
-
-    if action == "ASK_ORDER_ID":
-
-        return "📦 Please provide the order ID."
 
     # --------------------------------------------------------
     # SEARCH
@@ -504,7 +753,10 @@ def handle_message(user_input):
         if "keyword" in payload:
 
             keyword = payload["keyword"]
-            budget = payload.get("budget")
+
+            budget = payload.get(
+                "budget"
+            )
 
             results = search_catalog(
                 keyword,
@@ -517,132 +769,10 @@ def handle_message(user_input):
                 payload.get("quantity")
             )
 
-            return results
-
-        if "product" in payload:
-
-            product = payload["product"]
-
-            memory.remember_selection(product)
-
-            return product
-
-    # --------------------------------------------------------
-    # SEARCH THEN BUY
-    # --------------------------------------------------------
-
-    if action == "SEARCH_THEN_BUY":
-
-        keyword = payload["keyword"]
-        budget = payload.get("budget")
-
-        results = search_catalog(
-            keyword,
-            budget
-        )
-
-        memory.remember_search(
-            results,
-            budget,
-            payload.get("quantity")
-        )
-
-        return results
-
-    # --------------------------------------------------------
-    # COMPARE
-    # --------------------------------------------------------
-
-    if action == "COMPARE":
-
-        results = memory.last_search_results
-
-        if not results:
-            return "🔎 Search for a product first."
-
-        if len(results) < 2:
-            return "⚠️ Need at least two products to compare."
-
-        text = "⚖️ **MERCHX SMART COMPARISON**\n\n"
-
-        for product in results:
-
-            text += (
-                f"**{product['name']}**\n"
-                f"💰 ₹{product['price']:,}\n"
-                f"📦 Stock: {product['stock']}\n"
-                f"⚙️ {', '.join(product['features'])}\n\n"
-            )
-
-        return text
-
-    # --------------------------------------------------------
-    # QUOTE
-    # --------------------------------------------------------
-
-    if action == "QUOTE":
-
-        product = payload["product"]
-
-        quantity = payload.get(
-            "quantity",
-            1
-        )
-
-        total = product["price"] * quantity
-
-        quote = {
-            "id": f"MX-QT-{len(audit_engine.get_events()) + 1:04d}",
-            "product_id": product["id"],
-            "product": product["name"],
-            "quantity": quantity,
-            "total": total
-        }
-
-        memory.remember_quote(quote)
-
-        return (
-            "🧾 **MERCHX PURCHASE QUOTE**\n\n"
-            f"Quote ID: `{quote['id']}`\n"
-            f"Product: {product['name']}\n"
-            f"Quantity: {quantity}\n"
-            f"Total: ₹{total:,}\n\n"
-            "Status: **VALID**\n"
-            "Validity: **10 minutes**"
-        )
-
-    # --------------------------------------------------------
-    # INVENTORY
-    # --------------------------------------------------------
-
-    if action == "INVENTORY":
-
-        product = payload["product"]
-
-        quantity = payload.get(
-            "quantity",
-            1
-        )
-
-        inventory = check_inventory(
-            product["id"],
-            quantity
-        )
-
-        if inventory["available"]:
-
-            return (
-                "📦 **IN STOCK**\n\n"
-                f"{product['name']}\n"
-                f"Available: "
-                f"{inventory['available_stock']} units"
-            )
-
-        return (
-            "❌ **INSUFFICIENT STOCK**\n\n"
-            f"Available: "
-            f"{inventory['available_stock']} units"
-        )
+            return {
+                "type": "LOCAL",
+                "data": results
+            }
 
     # --------------------------------------------------------
     # BUY
@@ -659,13 +789,21 @@ def handle_message(user_input):
 
         budget = memory.budget_hint
 
-        return purchase_pipeline(
-            product,
-            quantity,
-            budget
-        )
+        return {
+            "type": "TEXT",
+            "data": purchase_pipeline(
+                product,
+                quantity,
+                budget
+            )
+        }
 
-    return get_agent_response(intent)
+    return {
+        "type": "TEXT",
+        "data": get_agent_response(
+            intent
+        )
+    }
 
 
 # ============================================================
@@ -674,7 +812,9 @@ def handle_message(user_input):
 
 with st.sidebar:
 
-    st.header("🛡️ MERCHX CONTROL")
+    st.header(
+        "🛡️ MERCHX CONTROL"
+    )
 
     st.metric(
         "Today's Spend",
@@ -683,22 +823,86 @@ with st.sidebar:
 
     st.metric(
         "Audit Events",
-        len(audit_engine.get_events())
+        len(
+            audit_engine.get_events()
+        )
     )
 
     st.divider()
 
-    st.subheader("System Layers")
+    st.subheader(
+        "🤖 Agent Stack"
+    )
 
-    st.write("🧠 AI Agent")
-    st.write("🧩 Context Engine")
-    st.write("🛒 Commerce Engine")
-    st.write("⚖️ Policy Engine")
-    st.write("🛡️ Risk Engine")
-    st.write("🔮 Simulation Engine")
-    st.write("🧠 Explainability")
-    st.write("📋 Audit Engine")
-    st.write("🧬 Policy Optimizer")
+    st.write(
+        "🧠 Intent Agent"
+    )
+
+    st.write(
+        "🔎 Discovery Agent"
+    )
+
+    st.write(
+        "💰 Price Intelligence"
+    )
+
+    st.write(
+        "⭐ Review Intelligence"
+    )
+
+    st.write(
+        "🏆 Recommendation Agent"
+    )
+
+    st.write(
+        "⚖️ Policy Engine"
+    )
+
+    st.write(
+        "🛡️ Risk Engine"
+    )
+
+    st.write(
+        "👤 Human-in-the-Loop"
+    )
+
+    st.write(
+        "📋 Audit Engine"
+    )
+
+    st.divider()
+
+    st.subheader(
+        "⚡ Protocol Status"
+    )
+
+    st.success(
+        "Agent Online"
+    )
+
+    st.success(
+        "Policy Engine Active"
+    )
+
+    st.success(
+        "Risk Engine Active"
+    )
+
+    st.success(
+        "Audit Engine Active"
+    )
+
+    if client:
+
+        st.success(
+            "🌐 Web Intelligence Online"
+        )
+
+    else:
+
+        st.warning(
+            "🌐 Web Intelligence Offline"
+        )
 
     st.divider()
 
@@ -708,12 +912,15 @@ with st.sidebar:
     ):
 
         if audit_engine.verify_integrity():
+
             st.success(
                 "Audit chain integrity verified."
             )
+
         else:
+
             st.error(
-                "Audit chain integrity check failed."
+                "Audit chain integrity failed."
             )
 
     if st.button(
@@ -722,7 +929,11 @@ with st.sidebar:
     ):
 
         st.session_state.chat_log = []
-        st.session_state.memory = AgentMemory()
+
+        st.session_state.memory = (
+            AgentMemory()
+        )
+
         st.session_state.pending_purchase = None
 
         st.rerun()
@@ -732,7 +943,9 @@ with st.sidebar:
 # HUMAN APPROVAL PANEL
 # ============================================================
 
-pending = st.session_state.pending_purchase
+pending = (
+    st.session_state.pending_purchase
+)
 
 if pending:
 
@@ -741,6 +954,7 @@ if pending:
     )
 
     product = pending["product"]
+
     risk = pending["risk"]
 
     st.write(
@@ -757,47 +971,17 @@ if pending:
 
     st.write(
         f"**Risk:** "
-        f"{risk['level']} — {risk['score']}/100"
+        f"{risk['level']} — "
+        f"{risk['score']}/100"
     )
 
-    with st.expander("🔎 View Details"):
+    with st.expander(
+        "🔎 View Decision Details"
+    ):
 
         st.markdown(
             format_risk_report(risk)
         )
 
         st.markdown(
-            format_simulation_report(
-                pending["simulation"]
-            )
-        )
-
-        st.markdown(
-            format_explanation(
-                pending["explanation"]
-            )
-        )
-
-    approve_col, reject_col = st.columns(2)
-
-    with approve_col:
-
-        if st.button(
-            "✅ APPROVE TRANSACTION",
-            use_container_width=True
-        ):
-
-            event = audit_engine.record_event(
-                action="HUMAN_APPROVAL",
-                agent_id="AGENT-001",
-                product_id=product["id"],
-                amount=pending["total"],
-                decision="APPROVED_BY_HUMAN",
-                risk_level=risk["level"],
-                policy_status="APPROVED",
-                payment_status="SIMULATED_SUCCESS"
-            )
-
-            st.session_state.spent_today += pending["total"]
-
-            st.session_state.pending_purchase = Non
+            format
